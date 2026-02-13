@@ -1,0 +1,42 @@
+:root {
+  --bg-color: #f0f2f5;
+  --card-bg: #ffffff;
+  --text-color: #333333;
+  --header-bg: #007bff;
+  --header-text: #ffffff;
+  --btn-primary: #007bff;
+  --btn-hover: #0056b3;
+  --border-color: #e0e0e0;
+}
+
+.dark {
+  --bg-color: #121212;
+  --card-bg: #1e1e1e;
+  --text-color: #e0e0e0;
+  --header-bg: #2c2c2c;
+  --header-text: #ffffff;
+  --btn-primary: #4dabf7;
+  --btn-hover: #339af0;
+  --border-color: #333;
+}
+
+body {
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  transition: background-color 0.3s, color 0.3s;
+}
+
+.card {
+  background-color: var(--card-bg);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  transition: background-color 0.3s, box-shadow 0.3s;
+}
+
+.btn {
+  transition: background-color 0.3s, transform 0.1s;
+}
+.btn:hover {
+  transform: translateY(-1px);
+}
