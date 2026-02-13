@@ -9,6 +9,7 @@ export default function Game() {
   const [guesses, setGuesses] = useState({ A: 0, B: 0, C: 0, D: 0 });
   const [result, setResult] = useState(null);
   const [reportMessage, setReportMessage] = useState('');
+  const [showRequestModal, setShowRequestModal] = useState(false);
 
   const fetchQuestion = async () => {
     setLoading(true);
@@ -173,3 +174,28 @@ export default function Game() {
     </div>
   );
 }
+return (
+    <div className="card" style={{ position: 'relative' }}>
+        {/* ... existing question rendering code ... */}
+
+        <div style={{ marginTop: '20px', borderTop: '2px dashed var(--border-color)', paddingTop: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '20px' }}>
+                <button 
+                    className="btn"
+                    style={{ backgroundColor: '#6c757d', color: 'white' }}
+                    onClick={() => setShowRequestModal(true)}
+                >
+                    📝 Suggest a New Question
+                </button>
+                
+                <button className="btn" style={{ backgroundColor: 'var(--btn-primary)', color: 'white' }} onClick={fetchQuestion}>
+                    ➡ Next Question
+                </button>
+            </div>
+        </div>
+
+        {showRequestModal && (
+            <RequestCardModal onClose={() => setShowRequestModal(false)} />
+        )}
+    </div>
+);

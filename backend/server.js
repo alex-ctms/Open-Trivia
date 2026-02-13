@@ -54,11 +54,27 @@ async function initDB() {
             question_id INT REFERENCES questions(id),
             selected_answer CHAR(1),
             is_correct BOOLEAN
+	};
+        CREATE TABLE IF NOT EXISTS pending_questions (
+            id SERIAL PRIMARY KEY,
+            user_id INT REFERENCES users(id),
+            category_name VARCHAR(100) NOT NULL, -- Store name directly to avoid FK issues if category is deleted
+            text TEXT NOT NULL,
+            option_a TEXT NOT NULL,
+            option_b TEXT NOT NULL,
+            option_c TEXT NOT NULL,
+            option_d TEXT NOT NULL,
+            correct_answer CHAR(1) NOT NULL,
+            complexity VARCHAR(20) NOT NULL,
+            submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            status VARCHAR(20) DEFAULT 'pending' -- 'pending', 'approved', 'denied'
         );
     `);
     client.release();
-    console.log("Database initialized.");
+    console.log("Database initialized with Pending Questions Queue.");
 }
+
+
 
 // Auth Middleware
 const authMiddleware = (req, res, next) => {
@@ -247,4 +263,84 @@ app.get('/api/user', authMiddleware, async (req, res) => {
 const PORT = process.env.PORT || 5000;
 initDB().then(() => {
     app.listen(PORT, () => console.log(`Backend running on ${PORT}`));
+});
+// --- 8. User: Request to Add Question (Queued) ---
+app.post('/api/requests/add-question', authMiddleware, async (req, res) => {
+    const { categoryName, text, options, correctAnswer, complexity } = req.body;
+    
+    try {
+        const result = await pool.query(`
+            INSERT INTO pending_questions (user_id, category_name, text, option_a, option_b, option_c, option_d, correct_answer, complexity)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING *
+        `, [req.user.id, categoryName, text, options.a, options.b, options.c, options.d, correctAnswer, complexity]);
+        
+        res.status(201).json({ message: "Question request submitted for review!", data: result.rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to submit request" });
+    }
+});
+
+// --- 9. Admin: Get Pending Queue ---
+app.get('/api/admin/queue', authMiddleware, async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Access Denied' });
+    
+    try {
+        const result = await pool.query(`
+            SELECT pq.*, u.email as submitted_by_email 
+            FROM pending_questions pq
+            JOIN users u ON pq.user_id = u.id
+            WHERE pq.status = 'pending'
+            ORDER BY pq.submitted_at DESC
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: "Failed to load queue" });
+    }
+});
+
+// --- 10. Admin: Approve Question (Moves to Active) ---
+app.post('/api/admin/approve/:id', authMiddleware, async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Access Denied' });
+    
+    const questionId = req.params.id;
+    
+    try {
+        // 1. Get the pending question
+        const qResult = await pool.query('SELECT * FROM pending_questions WHERE id = $1', [questionId]);
+        const question = qResult.rows[0];
+        
+        if (!question) return res.status(404).json({ error: 'Question not found' });
+
+        // 2. Create Category if it doesn't exist (Simple upsert logic)
+        await pool.query('INSERT INTO categories (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [question.category_name]);
+        
+        const catResult = await pool.query('SELECT id FROM categories WHERE name = $1', [question.category_name]);
+        const categoryId = catResult.rows[0].id;
+
+        // 3. Insert into active questions
+        await pool.query(`
+            INSERT INTO questions (category_id, text, option_a, option_b, option_c, option_d, correct_answer, complexity)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, [categoryId, question.text, question.option_a, question.option_b, question.option_c, question.option_d, question.correct_answer, question.complexity]);
+
+        // 4. Update status to approved
+        await pool.query('UPDATE pending_questions SET status = $1 WHERE id = $2', ['approved', questionId]);
+        
+        res.json({ message: "Question approved and added to the game!" });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to approve question" });
+    }
+});
+
+// --- 11. Admin: Deny Question ---
+app.post('/api/admin/deny/:id', authMiddleware, async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Access Denied' });
+    
+    try {
+        await pool.query('UPDATE pending_questions SET status = $1 WHERE id = $2', ['denied', req.params.id]);
+        res.json({ message: "Question denied" });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to deny question" });
+    }
 });
