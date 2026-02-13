@@ -1,29 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
-import { ThemeProvider, useTheme } from './ThemeContext'; // Add this import
-import './App.css'; // Add this import
 import Game from './Game';
 import Admin from './Admin';
 import Leaderboard from './Leaderboard';
-import axios from 'axios';
+import { ThemeProvider, useTheme } from './ThemeContext'; // Ensure this file exists
 
-const API_URL = 'http://localhost:5000/api';
-
-// --- Header Component (Separate for Clean UI) ---
+// 1. Create the Header Component INSIDE this file to avoid import conflicts
 const AppHeader = () => {
     const { isDark, toggleTheme } = useTheme();
-    
-    // Check if user is logged in (simplified logic)
-    const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('token'));
-    const [userRole, setUserRole] = useState('player');
-    
-    // Simulate user check
-    useEffect(() => {
-        if (isLoggedIn) {
-            // In a real app, decode the JWT here
-            setUserRole('player'); // Default to player unless admin
-        }
-    }, [isLoggedIn]);
+    const token = localStorage.getItem('token');
+    // Simple role check - if you are admin, you'll see it
+    const userRole = token === 'admin-token' ? 'admin' : 'player'; 
 
     return (
         <div className="header" style={{ 
@@ -31,12 +18,15 @@ const AppHeader = () => {
             backgroundColor: 'var(--header-bg)', 
             color: 'var(--header-text)',
             borderRadius: '12px 12px 0 0',
-            marginBottom: '20px'
+            marginBottom: '20px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
         }}>
             <div style={{ display: 'flex', alignItems: 'center' }}>
-                <h1 style={{ margin: 0 }}>TriviaMaster</h1>
-                {isLoggedIn && (
-                     <div style={{ marginLeft: '20px', fontSize: '0.9rem' }}>
+                <h1 style={{ margin: 0, fontSize: '1.5rem' }}>TriviaMaster</h1>
+                {token && (
+                     <div style={{ marginLeft: '20px' }}>
                         <span className="badge" style={{ 
                             padding: '5px 10px', 
                             borderRadius: '15px', 
@@ -49,23 +39,22 @@ const AppHeader = () => {
                 )}
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                 {/* Dark Mode Toggle Button */}
-                <button 
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                 <button 
                     className="btn"
                     style={{ 
                         backgroundColor: 'transparent', 
                         border: '1px solid var(--header-text)', 
                         color: 'var(--header-text)',
                         borderRadius: '50px',
-                        padding: '5px 15px'
+                        padding: '8px 15px'
                     }}
                     onClick={toggleTheme}
                 >
-                    {isDark ? '☀ Light Mode' : '🌙 Dark Mode'}
+                    {isDark ? '☀ Light' : '🌙 Dark'}
                 </button>
 
-                {!isLoggedIn ? (
+                {!token ? (
                     <button 
                         className="btn" 
                         style={{ 
@@ -75,11 +64,13 @@ const AppHeader = () => {
                             fontWeight: 'bold'
                         }}
                         onClick={() => {
-                             const email = prompt("Enter email to login (or register):");
-                             if(email) {
-                                 localStorage.setItem('token', 'mock-token');
-                                 setIsLoggedIn(true);
-                             }
+                            const email = prompt("Enter email to login (or register with seed password for admin):");
+                            if(email) {
+                                // For demo purposes, we'll store a mock token
+                                // If the password is the seed, we'd normally log in via API
+                                localStorage.setItem('token', 'mock-user-token');
+                                window.location.reload(); // Simple reload to update UI
+                            }
                         }}
                     >
                         Login / Register
@@ -93,7 +84,7 @@ const AppHeader = () => {
                         }}
                         onClick={() => {
                             localStorage.removeItem('token');
-                            setIsLoggedIn(false);
+                            window.location.reload();
                         }}
                     >
                         Logout
@@ -104,19 +95,18 @@ const AppHeader = () => {
     );
 };
 
-// --- Main App Component ---
+// 2. Main App Component
 function App() {
     return (
         <ThemeProvider>
             <Router>
-                <div className="container" style={{ maxWidth: '800px', margin: '0 auto', padding: '20px' }}>
+                <div className="container" style={{ maxWidth: '900px', margin: '0 auto', padding: '20px' }}>
                     <AppHeader />
 
-                    <nav style={{ marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', display: 'flex', gap: '20px' }}>
-                        <Link to="/" style={{ textDecoration: 'none', color: 'var(--text-color)' }}>Play Game</Link>
-                        <Link to="/leaderboard" style={{ textDecoration: 'none', color: 'var(--text-color)' }}>Leaderboard</Link>
-                        {/* Only show Admin if we had real auth */}
-                        <Link to="/admin" style={{ textDecoration: 'none', color: 'var(--text-color)' }}>Admin Panel</Link>
+                    <nav style={{ marginBottom: '30px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', display: 'flex', gap: '30px' }}>
+                        <Link to="/" style={{ textDecoration: 'none', color: 'var(--text-color)', fontWeight: 'bold' }}>Play Game</Link>
+                        <Link to="/leaderboard" style={{ textDecoration: 'none', color: 'var(--text-color)', fontWeight: 'bold' }}>Leaderboard</Link>
+                        <Link to="/admin" style={{ textDecoration: 'none', color: 'var(--text-color)', fontWeight: 'bold' }}>Admin Panel</Link>
                     </nav>
 
                     <Routes>
@@ -124,9 +114,9 @@ function App() {
                         <Route path="/leaderboard" element={<Leaderboard />} />
                         <Route path="/admin" element={<Admin />} />
                     </Routes>
-
-                    <footer style={{ textAlign: 'center', marginTop: '50px', color: '#888' }}>
-                        <p>© 2023 TriviaMaster PWA</p>
+                    
+                    <footer style={{ textAlign: 'center', marginTop: '50px', color: '#888', fontSize: '0.9rem' }}>
+                        <p>© 2026 TriviaMaster PWA</p>
                     </footer>
                 </div>
             </Router>

@@ -81,29 +81,59 @@ app.post('/api/register', async (req, res) => {
     const { email, password } = req.body;
     const hashed = await bcrypt.hash(password, 10);
     
+    // 1. Get a connection
+    const client = await pool.connect();
+    
     try {
-        // Check if any user exists
-        const existingUsers = await pool.query('SELECT COUNT(*) FROM users');
-        const count = existingUsers.rows[0].count;
+        await client.query('BEGIN');
+        
+        // 2. Check if any user exists
+        const checkQuery = 'SELECT COUNT(*) FROM users';
+        const countRes = await client.query(checkQuery);
+        const count = parseInt(countRes.rows[0].count);
 
         let role = 'player';
-        // Logic: If no users exist, the first one is Admin
-        // OR if password matches a specific "Seeded Secret"
-        if (count === 0 || password === process.env.ADMIN_SEED_PASSWORD) {
+        
+        // 3. Logic: If count is 0, or if the password matches the SEED, create Admin
+        // The SEED password should be in your .env file
+        const seedPassword = process.env.ADMIN_SEED_PASSWORD;
+        
+        if (count === 0) {
             role = 'admin';
+            console.log("⚠️  First user registered. Granting ADMIN privileges.");
+        } else if (password === seedPassword) {
+            role = 'admin';
+            console.log("✅ Admin Seed Password used. Granting ADMIN privileges.");
+        } else {
+            console.log("👤 Regular user registered.");
         }
 
-        const result = await pool.query(
-            'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3) RETURNING id, email, role, score',
-            [email, hashed, role]
-        );
+        const insertQuery = `
+            INSERT INTO users (email, password_hash, role) 
+            VALUES ($1, $2, $3) 
+            RETURNING id, email, role, score
+        `;
+        const result = await client.query(insertQuery, [email, hashed, role]);
         
+        await client.query('COMMIT');
+
         const token = jwt.sign({ id: result.rows[0].id, role: result.rows[0].role }, process.env.JWT_SECRET);
         res.json({ user: result.rows[0], token });
+        
     } catch (err) {
-        res.status(400).json({ error: 'User exists' });
+        await client.query('ROLLBACK');
+        if (err.code === '23505') { // Unique violation
+            res.status(400).json({ error: 'User already exists' });
+        } else {
+            res.status(500).json({ error: 'Database error' });
+        }
+    } finally {
+        client.release();
     }
 });
+
+
+
 
 app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
