@@ -95,60 +95,40 @@ const authMiddleware = (req, res, next) => {
 // 1. Auth
 app.post('/api/register', async (req, res) => {
     const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+    
     const hashed = await bcrypt.hash(password, 10);
     
-    // 1. Get a connection
-    const client = await pool.connect();
-    
+    // Check if any user exists first
+    const existingUsers = await pool.query('SELECT COUNT(*) FROM users');
+    const count = parseInt(existingUsers.rows[0].count);
+
+    // LOGIC: If first user, OR if email matches ADMIN_EMAIL env var
+    let role = 'player';
+    if (count === 0) {
+        role = 'admin';
+        console.log("✅ First user registered. Granting ADMIN.");
+    } else if (email.toLowerCase() === process.env.ADMIN_EMAIL.toLowerCase()) {
+        role = 'admin';
+        console.log("✅ Admin email used. Granting ADMIN.");
+    }
+
     try {
-        await client.query('BEGIN');
+        const result = await pool.query(
+            'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3) RETURNING id, email, role, score',
+            [email, hashed, role]
+        );
         
-        // 2. Check if any user exists
-        const checkQuery = 'SELECT COUNT(*) FROM users';
-        const countRes = await client.query(checkQuery);
-        const count = parseInt(countRes.rows[0].count);
-
-        let role = 'player';
-        
-        // 3. Logic: If count is 0, or if the password matches the SEED, create Admin
-        // The SEED password should be in your .env file
-        const seedPassword = process.env.ADMIN_SEED_PASSWORD;
-        
-        if (count === 0) {
-            role = 'admin';
-            console.log("⚠️  First user registered. Granting ADMIN privileges.");
-        } else if (password === seedPassword) {
-            role = 'admin';
-            console.log("✅ Admin Seed Password used. Granting ADMIN privileges.");
-        } else {
-            console.log("👤 Regular user registered.");
-        }
-
-        const insertQuery = `
-            INSERT INTO users (email, password_hash, role) 
-            VALUES ($1, $2, $3) 
-            RETURNING id, email, role, score
-        `;
-        const result = await client.query(insertQuery, [email, hashed, role]);
-        
-        await client.query('COMMIT');
-
         const token = jwt.sign({ id: result.rows[0].id, role: result.rows[0].role }, process.env.JWT_SECRET);
         res.json({ user: result.rows[0], token });
-        
     } catch (err) {
-        await client.query('ROLLBACK');
-        if (err.code === '23505') { // Unique violation
+        if (err.code === '23505') {
             res.status(400).json({ error: 'User already exists' });
         } else {
             res.status(500).json({ error: 'Database error' });
         }
-    } finally {
-        client.release();
     }
 });
-
-
 
 
 app.post('/api/login', async (req, res) => {
@@ -262,7 +242,13 @@ app.get('/api/user', authMiddleware, async (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 initDB().then(() => {
-    app.listen(PORT, () => console.log(`Backend running on ${PORT}`));
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => {
+        console.log(`✅ Backend running on port ${PORT}`);
+        console.log("✅ Database connected and tables ready.");
+    });
+}).catch(err => {
+    console.error("Failed to start server:", err);
 });
 // --- 8. User: Request to Add Question (Queued) ---
 app.post('/api/requests/add-question', authMiddleware, async (req, res) => {
