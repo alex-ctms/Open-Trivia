@@ -8,7 +8,7 @@ import axios from 'axios';
 
 // FIXED: Hardcode the API URL for Docker development mode
 // In production, you would use process.env.REACT_APP_API_URL
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 console.log('🔧 API URL configured as:', API_URL);
 

@@ -13,8 +13,8 @@ export default function Leaderboard() {
 
     const fetchLeaderboard = async () => {
         try {
-            const res = await axios.get(`${API_URL}/leaderboard`);
-            setUsers(res.data);
+            const response = await axios.get(`${API_URL}/leaderboard`);
+            setUsers(response.data);
         } catch (err) {
             console.error("Failed to load leaderboard", err);
             setUsers([]); // Ensure state is always set

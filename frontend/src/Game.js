@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import RequestCardModal from './RequestCardModal'; // Add this import
+import RequestCardModal from './RequestCardModal';
 
-const API_URL = process.env.REACT_APP_API_URL;
+const API_URL = process.env.REACT_APP_API_URL || '/api';
 
 export default function Game() {
   const [question, setQuestion] = useState(null);
@@ -10,13 +10,13 @@ export default function Game() {
   const [guesses, setGuesses] = useState({ A: 0, B: 0, C: 0, D: 0 });
   const [result, setResult] = useState(null);
   const [reportMessage, setReportMessage] = useState('');
-  const [showRequestModal, setShowRequestModal] = useState(false); // New State
+  const [showRequestModal, setShowRequestModal] = useState(false);
 
   const fetchQuestion = async () => {
     setLoading(true);
     try {
       const res = await axios.get(`${API_URL}/game/next`);
-      if (!res.data) {
+      if (!res.data || !res.data.id) {
         setQuestion(null);
         return;
       }
@@ -25,7 +25,6 @@ export default function Game() {
       setResult(null);
     } catch (err) {
       console.error("Error fetching question:", err);
-      alert("No questions available yet. Ask an admin to add some!");
       setQuestion(null);
     } finally {
       setLoading(false);
@@ -36,14 +35,15 @@ export default function Game() {
     fetchQuestion();
   }, []);
 
-  const handleAnswer = async (optionChar) => {
-    if (!question || result) return;
-    
+
+const handleAnswer = async (choice) => { // 'choice' is the argument passed from the button click
     try {
-      const res = await axios.post(`${API_URL}/game/submit`, {
-        questionId: question.id,
-        selectedAnswer: optionChar
-      });
+        await axios.post(`${API_URL}/game/submit`, {
+            // Update these to match whatever variables you have in your file:
+            userId: currentUser?.id,
+            questionId: question?.id,
+            selectedAnswer: choice
+        });
       
       setResult({
         isCorrect: res.data.isCorrect,
@@ -78,17 +78,37 @@ export default function Game() {
       }
   };
 
-  // Render
-  if (loading) return <div className="card" style={{ textAlign: 'center', padding: '40px' }}>Loading Question...</div>;
-  
-  if (!question) return (
-      <div className="card" style={{ textAlign: 'center' }}>
-          <h3>No Questions Available</h3>
-          <p>Admins need to add trivia questions or review pending requests.</p>
-          <button onClick={fetchQuestion} className="btn btn-primary">Retry Connection</button>
+  // Loading state
+  if (loading) {
+    return (
+      <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
+        <div style={{ fontSize: '48px', marginBottom: '20px' }}>⏳</div>
+        <h3>Loading Question...</h3>
       </div>
-  );
+    );
+  }
+  
+  // No questions available
+  if (!question) {
+    return (
+      <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
+        <div style={{ fontSize: '48px', marginBottom: '20px' }}>📝</div>
+        <h2>No Questions Available Yet!</h2>
+        <p style={{ color: '#666', marginBottom: '30px' }}>
+          Ask an admin to add some trivia questions to get started.
+        </p>
+        <button 
+          onClick={fetchQuestion} 
+          className="btn btn-primary"
+          style={{ padding: '12px 30px' }}
+        >
+          🔄 Retry
+        </button>
+      </div>
+    );
+  }
 
+  // Main game interface
   return (
     <div className="card" style={{ position: 'relative' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
@@ -100,7 +120,7 @@ export default function Game() {
                 fontWeight: 'bold',
                 color: 'var(--text-color)'
             }}>
-                Category: {question.category}
+                Category: {question?.category?.toUpperCase() || 'UNKNOWN'}
             </span>
             <span style={{ 
                 padding: '5px 12px', 
@@ -110,7 +130,7 @@ export default function Game() {
                 fontSize: '14px',
                 fontWeight: 'bold'
             }}>
-                Difficulty: {question.complexity.toUpperCase()}
+                Difficulty: {question?.complexity?.toUpperCase() || 'UNKNOWN'}
             </span>
         </div>
 
@@ -144,7 +164,7 @@ export default function Game() {
 
         {/* Answer Options */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            {question.options.map((opt) => (
+            {question.options && question.options.map((opt) => (
                 <button 
                     key={opt.char} 
                     className="btn"

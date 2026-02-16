@@ -306,6 +306,37 @@ app.post('/categories', async (req, res) => {
     }
 });
 
+// --- GET Categories ---
+app.get('/categories', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM categories ORDER BY id');
+        res.json(result.rows);
+    } catch (err) {
+        console.error('❌ Error fetching categories:', err.message);
+        res.status(500).json({ error: 'Error fetching categories' });
+    }
+});
+
+// Also add a seed endpoint to create a default category:
+app.post('/admin/seed-category', async (req, res) => {
+    try {
+        // Check if any categories exist
+        const count = await pool.query('SELECT COUNT(*) FROM categories');
+        if (parseInt(count.rows[0].count) > 0) {
+            return res.json({ message: 'Categories already exist' });
+        }
+        
+        // Create default category
+        await runQuery('INSERT INTO categories (name) VALUES ($1)', ['General Knowledge']);
+        console.log('✅ Default category created');
+        res.json({ message: 'Default category created successfully' });
+    } catch (err) {
+        console.error('❌ Error creating default category:', err.message);
+        res.status(500).json({ error: 'Error creating category' });
+    }
+});
+
+
 // --- 6. Admin: Add Question ---
 app.post('/questions', async (req, res) => {
     const { categoryId, text, options, correctAnswer, complexity } = req.body;
@@ -319,6 +350,70 @@ app.post('/questions', async (req, res) => {
     } catch (err) {
         console.error('❌ Error adding question:', err.message);
         res.status(500).json({ error: 'Error adding question' });
+    }
+});
+
+// --- 3b. Game: Submit Answer (MISSING ROUTE) ---
+app.post('/game/submit', async (req, res) => {
+    const { userId, questionId, selectedAnswer } = req.body;
+    
+    // Basic validation
+    if (!userId || !questionId || !selectedAnswer) {
+        return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    try {
+        // 1. Get the correct answer
+        const qResult = await pool.query('SELECT correct_answer, complexity FROM questions WHERE id = $1', [questionId]);
+        
+        if (qResult.rows.length === 0) {
+            return res.status(404).json({ error: "Question not found" });
+        }
+
+        const question = qResult.rows[0];
+        const isCorrect = (selectedAnswer === question.correct_answer);
+
+        // 2. Record the session
+        await runQuery(
+            'INSERT INTO game_sessions (user_id, question_id, selected_answer, is_correct) VALUES ($1, $2, $3, $4)',
+            [userId, questionId, selectedAnswer, isCorrect]
+        );
+
+        // 3. Update User Score if correct
+        if (isCorrect) {
+            // Define points: Easy=1, Medium=3, Hard=5 (adjust as needed)
+            const points = question.complexity === 'Hard' ? 5 : (question.complexity === 'Medium' ? 3 : 1);
+            await runQuery('UPDATE users SET score = score + $1 WHERE id = $2', [points, userId]);
+        }
+
+        res.json({ 
+            correct: isCorrect, 
+            correctAnswer: question.correct_answer,
+            message: isCorrect ? "Correct!" : "Wrong answer!"
+        });
+
+    } catch (err) {
+        console.error('❌ Error submitting answer:', err.message);
+        res.status(500).json({ error: 'Error processing submission' });
+    }
+});
+
+// --- 8. Requests: Add User Question (MISSING ROUTE) ---
+app.post('/requests/add-question', async (req, res) => {
+    const { userId, category, text, options, correctAnswer, complexity } = req.body;
+    
+    try {
+        await runQuery(`
+            INSERT INTO pending_questions 
+            (user_id, category_name, text, option_a, option_b, option_c, option_d, correct_answer, complexity)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `, [userId, category, text, options.a, options.b, options.c, options.d, correctAnswer, complexity]);
+        
+        console.log('✅ New question request submitted by user:', userId);
+        res.json({ message: "Question submitted for review!" });
+    } catch (err) {
+        console.error('❌ Error submitting question request:', err.message);
+        res.status(500).json({ error: 'Error submitting request' });
     }
 });
 
