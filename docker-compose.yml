@@ -11,7 +11,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "3008:3000"
+      - "3009:3000"
     depends_on:
       - backend
     environment:
@@ -19,12 +19,15 @@ services:
 
   backend:
     build: ./backend
+    ports:
+      - "5000:5000"
     environment:
       - PG_HOST=db
       - PG_PORT=5432
       - PG_USER=trivia_user
       - PG_PASSWORD=trivia_pass
       - PG_DB=trivia_db
+      - JWT_SECRET=LW3u9ojVDxZUYku7Kks6ZUS3PMw3A6K3
     depends_on:
       - db
 
