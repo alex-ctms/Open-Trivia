@@ -6,6 +6,12 @@ import Leaderboard from './Leaderboard';
 import { ThemeProvider, useTheme } from './ThemeContext';
 import axios from 'axios';
 
+// FIXED: Hardcode the API URL for Docker development mode
+// In production, you would use process.env.REACT_APP_API_URL
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+
+console.log('🔧 API URL configured as:', API_URL);
+
 // 1. Create the Header Component INSIDE this file to avoid import conflicts
 const AppHeader = ({ user, onLogout }) => {
     const { isDark, toggleTheme } = useTheme();
@@ -105,11 +111,13 @@ const LoginModal = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
-    const API_URL = process.env.REACT_APP_API_URL;
 
     const handleLogin = async (e) => {
         e.preventDefault();
         setError('');
+        
+        console.log('🔐 Attempting login to:', `${API_URL}/login`);
+        console.log('📧 Email:', email);
         
         try {
             const res = await axios.post(`${API_URL}/login`, {
@@ -117,6 +125,8 @@ const LoginModal = () => {
                 password: password
             });
 
+            console.log('✅ Login successful:', res.data);
+            
             // Save user and token
             localStorage.setItem('token', res.data.token);
             localStorage.setItem('user', JSON.stringify(res.data.user));
@@ -124,7 +134,8 @@ const LoginModal = () => {
             // Update window to reflect login
             window.location.reload();
         } catch (err) {
-            console.error(err);
+            console.error('❌ Login error:', err);
+            console.error('Error response:', err.response?.data);
             setError(err.response?.data?.error || "Login failed. Check your credentials.");
         }
     };
@@ -133,12 +144,17 @@ const LoginModal = () => {
         e.preventDefault();
         setError('');
 
+        console.log('📝 Attempting registration to:', `${API_URL}/register`);
+        console.log('📧 Email:', email);
+
         try {
             const res = await axios.post(`${API_URL}/register`, {
                 email: email,
                 password: password
             });
 
+            console.log('✅ Registration successful:', res.data);
+            
             // If registration succeeds, automatically log in
             localStorage.setItem('token', res.data.token);
             localStorage.setItem('user', JSON.stringify(res.data.user));
@@ -146,7 +162,8 @@ const LoginModal = () => {
             // Update window to reflect login
             window.location.reload();
         } catch (err) {
-            console.error(err);
+            console.error('❌ Registration error:', err);
+            console.error('Error response:', err.response?.data);
             setError(err.response?.data?.error || "Registration failed. User might already exist.");
         }
     };
@@ -183,8 +200,10 @@ const LoginModal = () => {
                     ×
                 </button>
                 <h3 style={{ marginBottom: '20px' }}>TriviaMaster Login</h3>
-                <p style={{ fontSize: '0.9rem', color: 'var(--text-color)' }}>
-                    <strong>Tip:</strong> To become Admin, register with the email specified in your `.env` file (usually `admin@trivia.com`) or be the very first user.
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-color)', backgroundColor: '#fff3cd', padding: '10px', borderRadius: '5px', marginBottom: '15px' }}>
+                    <strong>🔑 Admin Credentials:</strong><br/>
+                    Email: <code>admin@trivia.com</code><br/>
+                    Password: <code>admin123</code>
                 </p>
                 
                 <div style={{ marginTop: '20px' }}>
