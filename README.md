@@ -1,5 +1,231 @@
 # trivia-app
 
+## ✅ Epic 1 — Authentication & User Management
+*Focus: auth service, roles, admin console.*
+
+- [ ] Allow users to reset passwords  
+- [ ] Allows admin to reset user password  
+- [ ] Allow admin to see all users  
+- [ ] You should only be able to report/suggest when signed in as a User/Admin  
+- [ ] Record anonymous users on the backend, don't display their stats on the leaderboard
+
+**Notes**
+- [ ] Add `isAnonymous` flag and exclude from public leaderboard queries  
+- [ ] Role-based access for report/suggest endpoints  
+- [ ] Token-based password reset flow (time-limited, one-time use)  
+- [ ] Audit log for admin operations (password reset, user views)
+
+---
+
+## ✅ Epic 2 — Leaderboard & Scoring
+*Focus: score model, queries, time windows, scheduler.*
+
+- [ ] Hide admin scores from leaderboard (from player view)  
+- [ ] Allow category specific scores  
+- [ ] Allow users to filter leaderboard by category  
+- [ ] Allow users to see scores for the Day, Month, Year  
+- [ ] Allow user to reset their score  
+- [ ] Allow timer tied to score (faster = higher score) with min/max bounds  
+- [ ] Allow admin to reset leaderboard on a schedule (daily/weekly/monthly/yearly)
+
+**Notes**
+- [ ] Extend score schema: `userId`, `categoryId`, `score`, `createdAt`, `isAdmin`, `isAnonymous`  
+- [ ] Indexes for time windows (day/month/year)  
+- [ ] Scheduled resets via cron/Cloud Scheduler; idempotent jobs with logs  
+- [ ] Score reset retains audit trail (soft delete or archival table)  
+- [ ] Anti-cheat checks for timer-based scoring
+
+---
+
+## ✅ Epic 3 — Categories & Visibility
+*Focus: category model, selection UI.*
+
+- [ ] Allow users to choose categories  
+- [ ] Improve category visibility (searchable dropdown + create new)  
+- [ ] (UI piece shared with Epic 2) Leaderboard category filter
+
+**Notes**
+- [ ] Normalize categories, enforce uniqueness via slug  
+- [ ] Decide governance: admin-only creation vs. user-suggested with moderation  
+- [ ] Deduping and merge paths for near-duplicates
+
+---
+
+## ✅ Epic 4 — User-facing Analytics & Personalization
+*Focus: personal dashboard, aggregates.*
+
+- [ ] Allow users to see personal stats and data
+
+**Notes**
+- [ ] Display totals, per-category breakdown, and time-window stats  
+- [ ] Reuse leaderboard aggregation logic to avoid duplication  
+- [ ] Include recent activity and optional streaks
+
+---
+
+## ✅ Epic 5 — Content & Media Enhancements
+*Focus: question editor, storage, safe embeds.*
+
+- [ ] Allow PNG/JPEG/WebP images to be uploaded with question  
+- [ ] Allow linking to video
+
+**Notes**
+- [ ] Validate MIME types, size limits, and image dimensions  
+- [ ] Generate thumbnails and store URLs  
+- [ ] Support oEmbed (YouTube/Vimeo) or safe link previews with sanitization
+
+---
+
+## ✅ Epic 6 — API & Documentation
+*Focus: OpenAPI/Swagger, DX.*
+
+- [ ] Create an Open API endpoint documentation
+
+**Notes**
+- [ ] Publish OpenAPI spec + Swagger UI  
+- [ ] Document auth (security schemes), pagination, sorting, and filters  
+- [ ] Provide request/response examples for leaderboard and categories
+
+---
+
+## ✅ Epic 7 — Data Management & Operations
+*Focus: backups, exports, audit.*
+
+- [ ] Backup button (internal)  
+- [ ] Export data button (external download)
+
+**Notes**
+- [ ] Backups to secure storage, role-gated, audit-logged  
+- [ ] Exports as CSV/JSON; filters by date range/category; PII redaction options
+
+---
+
+## ✅ Epic 8 — UX, Theme & Visual Polish
+*Focus: dark mode consistency, browser quirks.*
+
+- [ ] Dark mode does not extend edge-to-edge on Edge browser (fix)
+
+**Notes**
+- [ ] Ensure `html, body, #root` use dark background and 100% height  
+- [ ] Validate scrollbar/overlay colors in Edge; test high-contrast mode  
+- [ ] Add visual regression test for dark theme boundaries
+
+---
+
+## 🧭 Recommended Order (Dependencies)
+1. [ ] Epic 1 — Authentication & User Management  
+2. [ ] Epic 3 — Categories & Visibility  
+3. [ ] Epic 2 — Leaderboard & Scoring  
+4. [ ] Epic 4 — User-facing Analytics & Personalization  
+5. [ ] Epic 8 — UX, Theme & Visual Polish  
+6. [ ] Epic 5 — Content & Media Enhancements  
+7. [ ] Epic 6 — API & Documentation  
+8. [ ] Epic 7 — Data Management & Operations
+
+---
+
+## 🧪 Sample Acceptance Criteria (Checklists)
+
+**Auth & User Management**
+- [ ] Users can request password reset; tokens expire and are single-use  
+- [ ] Admin can reset a specific user’s password; action is audit-logged  
+- [ ] Anonymous users stored with `isAnonymous=true`; excluded from public leaderboards  
+- [ ] Report/suggest endpoints require authentication and correct role (401/403 otherwise)
+
+**Leaderboard & Scoring**
+- [ ] Leaderboard filters by category and by day/month/year windows  
+- [ ] Admin scores are excluded from player view leaderboards  
+- [ ] Users can reset their own scores (scoped: category or global) with confirmation  
+- [ ] Scheduled resets run on time with logs and dry-run capability  
+- [ ] Timer-based scoring respects configured min/max multipliers and anti-cheat rules
+
+**Categories & Visibility**
+- [ ] Searchable category dropdown available on create/play flows  
+- [ ] “Create new category” path follows governance decision; duplicates prevented
+
+**Analytics**
+- [ ] Personal dashboard shows totals, time windows, and per-category breakdown  
+- [ ] Stats match leaderboard aggregates for the same filters
+
+**Content & Media**
+- [ ] Image uploads accept PNG/JPEG/WebP with size/type validation; thumbnails generated  
+- [ ] Video links render previews or embeds; invalid links handled gracefully
+
+**API & Docs**
+- [ ] OpenAPI published with security schemes, examples, and error models  
+- [ ] Documented query parameters for category/timeframe filters and `includeAnonymous=false`
+
+**Data & Ops**
+- [ ] Backup button triggers snapshot; success/failure notifications visible  
+- [ ] Export supports CSV/JSON, scoped by filters; admin-only; PII options respected
+
+**UX/Theme**
+- [ ] Dark mode renders edge-to-edge in Edge; meets WCAG AA contrast
+
+---
+
+## 🗂️ Optional Sprint Breakdown
+
+**Sprint 1 — Auth Foundations**
+- [ ] User + admin password reset  
+- [ ] Anonymous handling  
+- [ ] Gate report/suggest  
+- [ ] Admin list users
+
+**Sprint 2 — Categories & Base UI**
+- [ ] Category model  
+- [ ] Searchable dropdown  
+- [ ] Create-new flow + validation
+
+**Sprint 3 — Scoring Foundations**
+- [ ] Category-specific scores  
+- [ ] Hide admin scores  
+- [ ] Day/Month/Year queries  
+- [ ] User score reset
+
+**Sprint 4 — Scheduler & Analytics**
+- [ ] Scheduled leaderboard resets  
+- [ ] Personal stats dashboard
+
+**Sprint 5 — Theme & UX Polish**
+- [ ] Dark mode fix (Edge)  
+- [ ] Minor UI refinements
+
+**Sprint 6 — Media Enhancements**
+- [ ] Image uploads + thumbnails  
+- [ ] Video linking + previews
+
+**Sprint 7 — API & Docs**
+- [ ] OpenAPI spec  
+- [ ] Swagger UI + examples
+
+**Sprint 8 — Data & Ops**
+- [ ] Backup button  
+- [ ] Data export + PII options
+
+---
+
+## ⚡ Quick Wins
+- [ ] Hide admin scores (server-side filter + cache bust)  
+- [ ] Dark mode edge-to-edge fix (CSS roots)  
+- [ ] Leaderboard category filter (UI + query param)  
+- [ ] Gate report/suggest endpoints behind auth (middleware)
+
+
+
+
+
+
+
+
+
+
+
+
+
+---
+
+
 ## TODO
 - [x] Fix Leaderboard
     - [x] Display Users
