@@ -31,6 +31,9 @@
 - [ ] Allow png/jpeg/wepb images to be uploaded with question
 - [ ] Allow linking to video
 - [ ] Allow timer, tied to score (faster higher score) (min/max)
+- [ ] You should only be able to report/suggest when signed in as a User/Admin
+- [ ] record annynmous users on the backend, don't display their stats on the leaderboard.
+
 
 --- Template stuff
 
