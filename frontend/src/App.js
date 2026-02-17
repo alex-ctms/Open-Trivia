@@ -193,12 +193,6 @@ const LoginModal = () => {
                     ×
                 </button>
 
-                {/* Admin hint */}
-                <div style={{ fontSize: '0.85rem', backgroundColor: '#fff3cd', padding: '10px', borderRadius: '5px', marginBottom: '18px' }}>
-                    <strong>🔑 Admin credentials:</strong><br />
-                    Email: <code>admin@trivia.com</code> · Password: <code>admin123</code>
-                </div>
-
                 {error && (
                     <div style={{ color: '#721c24', backgroundColor: '#f8d7da', padding: '8px 12px', borderRadius: '5px', marginBottom: '12px', fontSize: '0.9rem' }}>
                         {error}

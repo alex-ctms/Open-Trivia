@@ -211,7 +211,27 @@ async function initDatabase() {
         if (parseInt(check.rows[0].count) === 0) {
             const hash = await bcrypt.hash(adminPassword, 10);
             await client.query('INSERT INTO users (email,password_hash,role,score) VALUES ($1,$2,$3,0)', [adminEmail, hash, 'admin']);
-            console.log(`✅ Admin created: ${adminEmail} / ${adminPassword}`);
+            console.log(`
+╔══════════════════════════════════════════════════════════╗
+║   🆕 ADMIN ACCOUNT CREATED — SAVE THESE CREDENTIALS     ║
+║                                                          ║
+║   Email    : ${adminEmail.padEnd(42)}║
+║   Password : ${adminPassword.padEnd(42)}║
+║                                                          ║
+║   Change this password immediately after first login.    ║
+║   These credentials will NOT be shown again.             ║
+╚══════════════════════════════════════════════════════════╝
+
+💡 Forgot your admin password? Reset it directly in the database:
+
+   docker compose exec db psql -U $PG_USER -d $PG_DB \\
+     -c "UPDATE users SET password_hash='\\$(node -e \\"
+          const b=require('bcryptjs');
+          b.hash('NEW_PASSWORD',10).then(h=>process.stdout.write(h))
+        \\")' WHERE email='${adminEmail}';"
+
+   Or use the one-liner reset script in ./backend/reset-admin-password.sh
+`);
         }
         console.log('✅ Database ready');
     } finally { client.release(); }
