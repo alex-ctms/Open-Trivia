@@ -3,17 +3,18 @@
 ## ✅ Epic 1 — Authentication & User Management
 *Focus: auth service, roles, admin console.*
 
-- [ ] Allow users to reset passwords  
-- [ ] Allows admin to reset user password  
-- [ ] Allow admin to see all users  
+- [X] Allow users to reset passwords  
+    - [ ] Need to connect to email server to send token to users. (Dev environments only atm)
+- [X] Allows admin to reset user password  
+- [X] Allow admin to see all users  
 - [ ] You should only be able to report/suggest when signed in as a User/Admin  
 - [ ] Record anonymous users on the backend, don't display their stats on the leaderboard
 
 **Notes**
 - [ ] Add `isAnonymous` flag and exclude from public leaderboard queries  
-- [ ] Role-based access for report/suggest endpoints  
-- [ ] Token-based password reset flow (time-limited, one-time use)  
-- [ ] Audit log for admin operations (password reset, user views)
+- [X] Role-based access for report/suggest endpoints  
+- [X] Token-based password reset flow (time-limited, one-time use)  
+- [X] Audit log for admin operations (password reset, user views)
 
 ---
 
