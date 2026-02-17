@@ -11,7 +11,7 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 console.log('🔧 API URL configured as:', API_URL);
 
 // ── Header ─────────────────────────────────────────────────────────────────────
-const AppHeader = ({ user, onLogout }) => {
+const AppHeader = ({ user, onLogout, urlResetToken = '' }) => {
     const { isDark, toggleTheme } = useTheme();
     const token = localStorage.getItem('token');
     const [storedUser, setStoredUser] = useState(() => {
@@ -66,7 +66,7 @@ const AppHeader = ({ user, onLogout }) => {
                     {isDark ? '☀ Light' : '🌙 Dark'}
                 </button>
                 {!token ? (
-                    <LoginModal />
+                    <LoginModal initialToken={urlResetToken} />
                 ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <span style={{ fontSize: '0.9rem' }}>
@@ -90,14 +90,14 @@ const AppHeader = ({ user, onLogout }) => {
 };
 
 // ── Login / Register / Forgot Password Modal ───────────────────────────────────
-const LoginModal = () => {
-    const [isOpen, setIsOpen] = useState(false);
+const LoginModal = ({ initialView = 'login', initialToken = '' }) => {
+    const [isOpen, setIsOpen] = useState(!!initialToken); // auto-open if landing from email link
     // 'login' | 'register' | 'forgot' | 'reset'
-    const [view, setView] = useState('login');
+    const [view, setView] = useState(initialToken ? 'reset' : initialView);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
-    const [resetToken, setResetToken] = useState('');
+    const [resetToken, setResetToken] = useState(initialToken);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
 
@@ -134,13 +134,17 @@ const LoginModal = () => {
         clearMessages();
         try {
             const res = await axios.post(`${API_URL}/auth/request-reset`, { email });
-            // In dev mode the token is returned directly; in production it would be emailed.
-            if (res.data.token) {
+            if (res.data.emailSent) {
+                // Real email was dispatched — just show confirmation, stay on this view
+                setSuccess('📧 Reset link sent! Check your inbox (and spam folder).');
+            } else if (res.data.token) {
+                // Dev mode: no SMTP configured, token returned in response
                 setResetToken(res.data.token);
-                setSuccess('Token generated! In production this would be emailed. For now, it\'s pre-filled below.');
+                setSuccess('⚠️ No email server configured — token pre-filled below (dev mode).');
                 setView('reset');
             } else {
-                setSuccess(res.data.message || 'If that email exists, check your inbox.');
+                // User not found — show generic message (no enumeration)
+                setSuccess('If that email is registered, a reset link has been sent.');
             }
         } catch (err) {
             setError(err.response?.data?.error || 'Request failed.');
@@ -301,6 +305,19 @@ function App() {
         return saved ? JSON.parse(saved) : null;
     });
 
+    // If the user lands via a password-reset email link (?reset_token=xxx),
+    // extract the token and clear it from the URL so it isn't bookmarked.
+    const [urlResetToken] = useState(() => {
+        const params = new URLSearchParams(window.location.search);
+        const t = params.get('reset_token') || '';
+        if (t) {
+            // Remove the token from the address bar without a reload
+            const clean = window.location.pathname;
+            window.history.replaceState({}, '', clean);
+        }
+        return t;
+    });
+
     const handleLogout = () => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
@@ -318,7 +335,7 @@ function App() {
         <ThemeProvider>
             <Router>
                 <div className="container" style={{ maxWidth: '900px', margin: '0 auto', padding: '20px' }}>
-                    <AppHeader user={user} onLogout={handleLogout} />
+                    <AppHeader user={user} onLogout={handleLogout} urlResetToken={urlResetToken} />
 
                     <nav style={{ marginBottom: '30px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', display: 'flex', gap: '30px' }}>
                         <Link to="/" style={{ textDecoration: 'none', color: 'var(--text-color)', fontWeight: 'bold' }}>Play Game</Link>

@@ -4,7 +4,70 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
+
+// ── Mailer ─────────────────────────────────────────────────────────────────────
+// All SMTP settings come from environment variables. If SMTP_HOST is not set,
+// the mailer falls back to logging the token to stdout (dev/no-email mode).
+function buildTransport() {
+    if (!process.env.SMTP_HOST) return null;
+    return nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT || '587'),
+        secure: process.env.SMTP_SECURE === 'true', // true = 465, false = STARTTLS
+        auth: (process.env.SMTP_USER && process.env.SMTP_PASS)
+            ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+            : undefined,
+    });
+}
+
+async function sendResetEmail(toEmail, resetToken) {
+    const appUrl   = (process.env.APP_URL || 'http://localhost:3009').replace(/\/$/, '');
+    const fromAddr = process.env.SMTP_FROM || `TriviaMaster <noreply@${process.env.SMTP_HOST || 'trivia.local'}>`;
+    const resetUrl = `${appUrl}/?reset_token=${resetToken}`;
+    const expiryHr = '1 hour';
+
+    const transport = buildTransport();
+
+    if (!transport) {
+        // No SMTP configured — log token so dev environments still work
+        console.warn('⚠️  SMTP not configured. Reset token (dev only):');
+        console.warn(`    Email : ${toEmail}`);
+        console.warn(`    Token : ${resetToken}`);
+        console.warn(`    URL   : ${resetUrl}`);
+        return { devMode: true, token: resetToken, url: resetUrl };
+    }
+
+    const html = `
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+            <h2 style="color:#007bff">🏆 TriviaMaster — Password Reset</h2>
+            <p>A password reset was requested for <strong>${toEmail}</strong>.</p>
+            <p>Click the button below to set a new password. This link expires in <strong>${expiryHr}</strong>.</p>
+            <p style="text-align:center;margin:30px 0">
+                <a href="${resetUrl}"
+                   style="background:#007bff;color:#fff;padding:14px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block">
+                   Reset My Password
+                </a>
+            </p>
+            <p style="font-size:12px;color:#888">
+                If the button doesn't work, copy this link into your browser:<br>
+                <a href="${resetUrl}">${resetUrl}</a>
+            </p>
+            <p style="font-size:12px;color:#888">If you didn't request this, you can safely ignore this email.</p>
+        </div>`;
+
+    await transport.sendMail({
+        from: fromAddr,
+        to: toEmail,
+        subject: 'TriviaMaster — Reset your password',
+        html,
+        text: `Reset your TriviaMaster password by visiting: ${resetUrl}\n\nThis link expires in ${expiryHr}. If you didn't request this, ignore this email.`,
+    });
+
+    console.log(`📧 Password reset email sent to ${toEmail}`);
+    return { devMode: false };
+}
 
 if (!process.env.JWT_SECRET) { console.error('❌ FATAL: JWT_SECRET not set'); process.exit(1); }
 
@@ -195,20 +258,21 @@ app.post('/login', async (req, res) => {
 });
 
 // ── PASSWORD RESET ─────────────────────────────────────────────────────────────
-// Request a reset token. In production this would send an email;
-// for now the token is returned directly in the response (dev/self-hosted mode).
+// Request a password reset. Sends an email with a one-time link.
+// If SMTP is not configured, the token is logged to stdout and also returned
+// in the response body so dev environments work without a mail server.
 app.post('/auth/request-reset', async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email required' });
     try {
         const r = await pool.query('SELECT id FROM users WHERE email=$1 AND is_anonymous=FALSE', [email]);
         if (!r.rows.length) {
-            // Return success anyway to avoid email enumeration
-            return res.json({ success: true, message: 'If that account exists, a reset token has been generated.' });
+            // Always return success to prevent email enumeration
+            return res.json({ success: true, emailSent: false, message: 'If that account exists, a reset link has been sent.' });
         }
 
         const userId = r.rows[0].id;
-        // Invalidate any existing active tokens
+        // Invalidate any existing active tokens for this user
         await pool.query('UPDATE password_reset_tokens SET used=TRUE WHERE user_id=$1 AND used=FALSE', [userId]);
 
         const token = crypto.randomBytes(32).toString('hex');
@@ -218,10 +282,22 @@ app.post('/auth/request-reset', async (req, res) => {
             [userId, token, expiresAt]
         );
 
-        console.log(`🔑 Password reset token for ${email}: ${token}`);
-        // NOTE: In production, remove `token` from response and send via email
-        res.json({ success: true, token, expiresAt, message: 'Token generated. Use it within 1 hour.' });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+        const result = await sendResetEmail(email, token);
+
+        // In dev mode (no SMTP), surface the token so the UI can still pre-fill the reset form
+        res.json({
+            success: true,
+            emailSent: !result.devMode,
+            message: result.devMode
+                ? 'No email server configured — token returned for development use.'
+                : 'Reset link sent! Check your inbox.',
+            // Only populated in dev mode; undefined (omitted) when email was sent
+            ...(result.devMode ? { token: result.token, resetUrl: result.url } : {}),
+        });
+    } catch (err) {
+        console.error('Password reset error:', err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Reset password using a token
