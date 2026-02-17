@@ -27,7 +27,7 @@ const Toast = ({ msg }) => msg ? (
     }}>{msg}</div>
 ) : null;
 
-// ─── Question Form (shared between Add and Edit) ───────────────────────────────
+// ─── Question Form ─────────────────────────────────────────────────────────────
 function QuestionForm({ categories, onSubmit, initial = {}, submitLabel = '✅ Add Question', onCancel }) {
     const [catId, setCatId]     = useState(initial.category_id ?? categories[0]?.id ?? '');
     const [text, setText]       = useState(initial.text ?? '');
@@ -113,6 +113,57 @@ function QuestionForm({ categories, onSubmit, initial = {}, submitLabel = '✅ A
     );
 }
 
+// ─── Reset Password Modal ──────────────────────────────────────────────────────
+function ResetPasswordModal({ user, onClose, onSuccess, flash }) {
+    const [newPassword, setNewPassword] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (newPassword.length < 6) { flash('❌ Password must be at least 6 characters'); return; }
+        setLoading(true);
+        try {
+            await axios.post(`${API_URL}/admin/users/${user.id}/reset-password`, { newPassword }, authCfg());
+            flash(`✅ Password reset for ${user.email}`);
+            onSuccess();
+            onClose();
+        } catch (err) {
+            flash('❌ ' + (err.response?.data?.error || 'Reset failed'));
+        } finally { setLoading(false); }
+    };
+
+    const iStyle = {
+        width: '100%', boxSizing: 'border-box', padding: '9px 12px',
+        borderRadius: '6px', border: '1px solid var(--border-color)',
+        backgroundColor: 'var(--card-bg)', color: 'var(--text-color)', fontSize: '14px'
+    };
+
+    return (
+        <div style={{
+            position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+            backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center'
+        }}>
+            <div className="card" style={{ width: '90%', maxWidth: '380px', padding: '28px', position: 'relative' }}>
+                <button onClick={onClose} style={{ position: 'absolute', top: '12px', right: '14px', background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#888' }}>×</button>
+                <h4 style={{ marginBottom: '6px' }}>🔑 Reset Password</h4>
+                <p style={{ fontSize: '13px', color: '#666', marginBottom: '16px' }}>
+                    Setting new password for <strong>{user.email}</strong>
+                </p>
+                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <input
+                        type="password" placeholder="New password (min 6 chars)"
+                        value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                        required style={iStyle}
+                    />
+                    <button type="submit" className="btn btn-primary" style={{ padding: '10px' }} disabled={loading}>
+                        {loading ? 'Saving...' : 'Set Password'}
+                    </button>
+                </form>
+            </div>
+        </div>
+    );
+}
+
 // ─── Main Admin Component ──────────────────────────────────────────────────────
 export default function Admin() {
     const [tab, setTab]               = useState('questions');
@@ -125,6 +176,14 @@ export default function Admin() {
     const [newCatName, setNewCatName] = useState('');
     const [pending, setPending]       = useState([]);
     const [reported, setReported]     = useState([]);
+    // Users tab
+    const [users, setUsers]           = useState([]);
+    const [usersLoading, setUsersLoading] = useState(false);
+    const [resetTarget, setResetTarget]   = useState(null); // user to reset password for
+    const [showAnon, setShowAnon]         = useState(false);
+    // Audit log tab
+    const [auditLog, setAuditLog]     = useState([]);
+    const [auditLoading, setAuditLoading] = useState(false);
 
     const flash = useCallback((m) => { setToast(m); setTimeout(() => setToast(''), 3500); }, []);
 
@@ -156,9 +215,29 @@ export default function Admin() {
         } catch { flash('❌ Failed to load review queue'); }
     }, []);
 
+    const loadUsers = useCallback(async () => {
+        setUsersLoading(true);
+        try {
+            const r = await axios.get(`${API_URL}/admin/users`, authCfg());
+            setUsers(r.data);
+        } catch { flash('❌ Failed to load users'); }
+        finally { setUsersLoading(false); }
+    }, []);
+
+    const loadAuditLog = useCallback(async () => {
+        setAuditLoading(true);
+        try {
+            const r = await axios.get(`${API_URL}/admin/audit-log`, authCfg());
+            setAuditLog(r.data);
+        } catch { flash('❌ Failed to load audit log'); }
+        finally { setAuditLoading(false); }
+    }, []);
+
     useEffect(() => { loadCategories(); }, []);
     useEffect(() => { if (tab === 'review') loadReview(); }, [tab]);
     useEffect(() => { if (tab === 'questions' && selCat) loadQuestions(selCat.id); }, [selCat, tab]);
+    useEffect(() => { if (tab === 'users') loadUsers(); }, [tab]);
+    useEffect(() => { if (tab === 'audit') loadAuditLog(); }, [tab]);
 
     // ── Category actions ───────────────────────────────────────────────────────
     const addCategory = async () => {
@@ -251,6 +330,15 @@ export default function Admin() {
         } catch { flash('❌ Failed'); }
     };
 
+    // ── User actions ───────────────────────────────────────────────────────────
+    const changeRole = async (userId, newRole) => {
+        try {
+            await axios.patch(`${API_URL}/admin/users/${userId}/role`, { role: newRole }, authCfg());
+            flash(`✅ Role updated to ${newRole}`);
+            loadUsers();
+        } catch (e) { flash('❌ ' + (e.response?.data?.error || 'Role change failed')); }
+    };
+
     // ── Styles ─────────────────────────────────────────────────────────────────
     const tabStyle = (t) => ({
         padding: '9px 18px', borderRadius: '6px', border: 'none', cursor: 'pointer',
@@ -266,12 +354,14 @@ export default function Admin() {
     };
 
     const reviewBadgeCount = pending.length + reported.length;
+    const realUsers = users.filter(u => !u.is_anonymous);
+    const anonUsers = users.filter(u => u.is_anonymous);
 
     return (
         <div style={{ paddingBottom: '40px' }}>
             <h2 style={{ marginBottom: '4px' }}>🛠️ Admin Dashboard</h2>
             <p style={{ color: '#888', marginBottom: '20px', fontSize: '13px' }}>
-                Manage categories, questions, and review user submissions.
+                Manage categories, questions, users, and review submissions.
             </p>
 
             <Toast msg={toast} />
@@ -289,6 +379,15 @@ export default function Admin() {
                         </span>
                     )}
                 </button>
+                <button style={tabStyle('users')}      onClick={() => setTab('users')}>
+                    👥 Users
+                    {realUsers.length > 0 && (
+                        <span style={{ marginLeft: '7px', backgroundColor: '#6c757d', color: 'white', borderRadius: '10px', padding: '1px 6px', fontSize: '11px' }}>
+                            {realUsers.length}
+                        </span>
+                    )}
+                </button>
+                <button style={tabStyle('audit')}      onClick={() => setTab('audit')}>📜 Audit Log</button>
             </div>
 
             {/* ── QUESTIONS ──────────────────────────────────────────────────── */}
@@ -536,6 +635,177 @@ export default function Admin() {
                         </div>
                     ))}
                 </div>
+            )}
+
+            {/* ── USERS ──────────────────────────────────────────────────────── */}
+            {tab === 'users' && (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                        <h3 style={{ margin: 0 }}>
+                            👥 Registered Users
+                            <span style={{ marginLeft: '8px', color: '#888', fontWeight: 'normal', fontSize: '14px' }}>({realUsers.length} users)</span>
+                        </h3>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <label style={{ fontSize: '13px', color: '#888', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <input type="checkbox" checked={showAnon} onChange={e => setShowAnon(e.target.checked)} />
+                                Show anonymous ({anonUsers.length})
+                            </label>
+                            <button className="btn" onClick={loadUsers} style={{ fontSize: '12px', padding: '5px 12px' }}>🔄 Refresh</button>
+                        </div>
+                    </div>
+
+                    {usersLoading ? (
+                        <p style={{ color: '#888' }}>Loading users...</p>
+                    ) : (
+                        <div>
+                            {/* Registered users table */}
+                            <div style={{ overflowX: 'auto' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                                    <thead>
+                                        <tr style={{ borderBottom: '2px solid var(--border-color)', textAlign: 'left' }}>
+                                            <th style={{ padding: '10px 8px', color: 'var(--text-color)' }}>User</th>
+                                            <th style={{ padding: '10px 8px', color: 'var(--text-color)' }}>Role</th>
+                                            <th style={{ padding: '10px 8px', color: 'var(--text-color)' }}>Score</th>
+                                            <th style={{ padding: '10px 8px', color: 'var(--text-color)' }}>Games</th>
+                                            <th style={{ padding: '10px 8px', color: 'var(--text-color)' }}>Correct</th>
+                                            <th style={{ padding: '10px 8px', color: 'var(--text-color)' }}>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {realUsers.length === 0 && (
+                                            <tr><td colSpan="6" style={{ padding: '20px', textAlign: 'center', color: '#888' }}>No users yet.</td></tr>
+                                        )}
+                                        {realUsers.map(u => (
+                                            <tr key={u.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                                <td style={{ padding: '10px 8px' }}>
+                                                    <div style={{ fontWeight: 'bold', color: 'var(--text-color)' }}>{u.email.split('@')[0]}</div>
+                                                    <div style={{ fontSize: '11px', color: '#888' }}>{u.email}</div>
+                                                </td>
+                                                <td style={{ padding: '10px 8px' }}>
+                                                    <Badge
+                                                        color={u.role === 'admin' ? '#ff9800' : '#28a745'}
+                                                        text={u.role}
+                                                    />
+                                                </td>
+                                                <td style={{ padding: '10px 8px', fontWeight: 'bold', color: 'var(--btn-primary)' }}>{u.score}</td>
+                                                <td style={{ padding: '10px 8px', color: 'var(--text-color)' }}>{u.games_played}</td>
+                                                <td style={{ padding: '10px 8px', color: 'var(--text-color)' }}>
+                                                    {u.games_played > 0
+                                                        ? `${u.correct_answers} (${Math.round(u.correct_answers / u.games_played * 100)}%)`
+                                                        : '—'}
+                                                </td>
+                                                <td style={{ padding: '10px 8px' }}>
+                                                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                                        <button
+                                                            className="btn"
+                                                            style={{ fontSize: '12px', padding: '4px 10px' }}
+                                                            onClick={() => setResetTarget(u)}
+                                                        >
+                                                            🔑 Reset PW
+                                                        </button>
+                                                        <button
+                                                            className="btn"
+                                                            style={{ fontSize: '12px', padding: '4px 10px', backgroundColor: u.role === 'admin' ? '#6c757d' : '#ff9800', color: 'white' }}
+                                                            onClick={() => changeRole(u.id, u.role === 'admin' ? 'player' : 'admin')}
+                                                        >
+                                                            {u.role === 'admin' ? '↓ Player' : '↑ Admin'}
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Anonymous users section */}
+                            {showAnon && anonUsers.length > 0 && (
+                                <div style={{ marginTop: '24px' }}>
+                                    <h4 style={{ color: '#888', marginBottom: '10px', fontWeight: 'normal' }}>
+                                        👤 Anonymous Sessions ({anonUsers.length}) — excluded from leaderboard
+                                    </h4>
+                                    <div style={{ overflowX: 'auto' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', opacity: 0.75 }}>
+                                            <thead>
+                                                <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
+                                                    <th style={{ padding: '8px', color: '#888' }}>ID</th>
+                                                    <th style={{ padding: '8px', color: '#888' }}>Score</th>
+                                                    <th style={{ padding: '8px', color: '#888' }}>Games</th>
+                                                    <th style={{ padding: '8px', color: '#888' }}>Correct</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {anonUsers.map(u => (
+                                                    <tr key={u.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                                        <td style={{ padding: '8px', color: '#888' }}>anon#{u.id}</td>
+                                                        <td style={{ padding: '8px', color: '#888' }}>{u.score}</td>
+                                                        <td style={{ padding: '8px', color: '#888' }}>{u.games_played}</td>
+                                                        <td style={{ padding: '8px', color: '#888' }}>
+                                                            {u.games_played > 0
+                                                                ? `${u.correct_answers} (${Math.round(u.correct_answers / u.games_played * 100)}%)`
+                                                                : '—'}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ── AUDIT LOG ──────────────────────────────────────────────────── */}
+            {tab === 'audit' && (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                        <h3 style={{ margin: 0 }}>📜 Admin Audit Log</h3>
+                        <button className="btn" onClick={loadAuditLog} style={{ fontSize: '12px', padding: '5px 12px' }}>🔄 Refresh</button>
+                    </div>
+                    {auditLoading ? (
+                        <p style={{ color: '#888' }}>Loading...</p>
+                    ) : auditLog.length === 0 ? (
+                        <div style={{ ...cardStyle, textAlign: 'center', padding: '30px', color: '#888' }}>
+                            No admin actions recorded yet.
+                        </div>
+                    ) : (
+                        <div>
+                            {auditLog.map(entry => (
+                                <div key={entry.id} style={{ ...cardStyle, display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                                    <div style={{
+                                        width: '36px', height: '36px', borderRadius: '50%', flexShrink: 0,
+                                        backgroundColor: '#e9ecef', display: 'flex', alignItems: 'center',
+                                        justifyContent: 'center', fontSize: '16px'
+                                    }}>
+                                        {entry.action.includes('PASSWORD') ? '🔑' : entry.action.includes('ROLE') ? '👤' : '📝'}
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '4px', marginBottom: '4px' }}>
+                                            <strong style={{ color: 'var(--text-color)', fontSize: '13px' }}>{entry.action}</strong>
+                                            <span style={{ fontSize: '11px', color: '#aaa' }}>
+                                                {new Date(entry.created_at).toLocaleString()}
+                                            </span>
+                                        </div>
+                                        <div style={{ fontSize: '13px', color: '#666' }}>{entry.details}</div>
+                                        <div style={{ fontSize: '11px', color: '#aaa', marginTop: '2px' }}>by {entry.admin_email || 'system'}</div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Reset Password Modal */}
+            {resetTarget && (
+                <ResetPasswordModal
+                    user={resetTarget}
+                    onClose={() => setResetTarget(null)}
+                    onSuccess={loadUsers}
+                    flash={flash}
+                />
             )}
         </div>
     );

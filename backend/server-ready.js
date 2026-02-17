@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 require('dotenv').config();
 
 if (!process.env.JWT_SECRET) { console.error('❌ FATAL: JWT_SECRET not set'); process.exit(1); }
@@ -26,7 +27,7 @@ async function runQuery(query, params = []) {
     finally { client.release(); }
 }
 
-// Auth helpers
+// ── Auth helpers ───────────────────────────────────────────────────────────────
 function getTokenUser(req) {
     try {
         const h = req.headers['authorization'];
@@ -34,11 +35,26 @@ function getTokenUser(req) {
         return jwt.verify(h.split(' ')[1], process.env.JWT_SECRET);
     } catch { return null; }
 }
+function requireAuth(req, res) {
+    const u = getTokenUser(req);
+    if (!u) { res.status(401).json({ error: 'Authentication required' }); return null; }
+    return u;
+}
 function requireAdmin(req, res) {
     const u = getTokenUser(req);
     if (!u) { res.status(401).json({ error: 'Not authenticated' }); return null; }
     if (u.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return null; }
     return u;
+}
+
+// ── Audit log helper ───────────────────────────────────────────────────────────
+async function auditLog(adminId, action, details = '') {
+    try {
+        await pool.query(
+            'INSERT INTO audit_logs (admin_id, action, details) VALUES ($1, $2, $3)',
+            [adminId, action, details]
+        );
+    } catch (err) { console.error('Audit log failed:', err.message); }
 }
 
 async function initDatabase() {
@@ -51,7 +67,8 @@ async function initDatabase() {
                 email VARCHAR(255) UNIQUE NOT NULL,
                 password_hash VARCHAR(255) NOT NULL,
                 role VARCHAR(50) DEFAULT 'player',
-                score INTEGER DEFAULT 0
+                score INTEGER DEFAULT 0,
+                is_anonymous BOOLEAN DEFAULT FALSE
             );
             CREATE TABLE IF NOT EXISTS categories (
                 id SERIAL PRIMARY KEY,
@@ -97,6 +114,21 @@ async function initDatabase() {
                 reason TEXT,
                 reported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id SERIAL PRIMARY KEY,
+                user_id INT REFERENCES users(id) ON DELETE CASCADE,
+                token VARCHAR(255) UNIQUE NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                used BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id SERIAL PRIMARY KEY,
+                admin_id INT REFERENCES users(id),
+                action VARCHAR(255) NOT NULL,
+                details TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         `);
 
         // Safe migrations for existing databases
@@ -104,6 +136,7 @@ async function initDatabase() {
             `ALTER TABLE questions ADD COLUMN IF NOT EXISTS disabled BOOLEAN DEFAULT FALSE`,
             `ALTER TABLE pending_questions ADD COLUMN IF NOT EXISTS submitted_by_email VARCHAR(255) DEFAULT 'anonymous'`,
             `ALTER TABLE question_reports ADD COLUMN IF NOT EXISTS reported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
+            `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_anonymous BOOLEAN DEFAULT FALSE`,
         ];
         for (const m of migrations) {
             try { await client.query(m); } catch(e) { console.log('Migration skipped:', e.message); }
@@ -132,7 +165,8 @@ app.post('/register', async (req, res) => {
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
     try {
         const hashed = await bcrypt.hash(password, 10);
-        const countRes = await pool.query('SELECT COUNT(*) FROM users');
+        // Only count non-anonymous real users to decide first-user-gets-admin
+        const countRes = await pool.query('SELECT COUNT(*) FROM users WHERE is_anonymous=FALSE');
         const role = parseInt(countRes.rows[0].count) === 0 ? 'admin' : 'player';
         const r = await runQuery(
             'INSERT INTO users (email,password_hash,role) VALUES ($1,$2,$3) RETURNING id,email,role,score',
@@ -150,13 +184,64 @@ app.post('/login', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
     try {
-        const r = await pool.query('SELECT * FROM users WHERE email=$1', [email]);
+        const r = await pool.query('SELECT * FROM users WHERE email=$1 AND is_anonymous=FALSE', [email]);
         if (!r.rows.length) return res.status(404).json({ error: 'User not found' });
         const valid = await bcrypt.compare(password, r.rows[0].password_hash);
         if (!valid) return res.status(401).json({ error: 'Wrong password' });
         const token = jwt.sign({ id: r.rows[0].id, role: r.rows[0].role }, process.env.JWT_SECRET, { expiresIn: '7d' });
         const { password_hash, ...user } = r.rows[0];
         res.json({ user, token });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PASSWORD RESET ─────────────────────────────────────────────────────────────
+// Request a reset token. In production this would send an email;
+// for now the token is returned directly in the response (dev/self-hosted mode).
+app.post('/auth/request-reset', async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email required' });
+    try {
+        const r = await pool.query('SELECT id FROM users WHERE email=$1 AND is_anonymous=FALSE', [email]);
+        if (!r.rows.length) {
+            // Return success anyway to avoid email enumeration
+            return res.json({ success: true, message: 'If that account exists, a reset token has been generated.' });
+        }
+
+        const userId = r.rows[0].id;
+        // Invalidate any existing active tokens
+        await pool.query('UPDATE password_reset_tokens SET used=TRUE WHERE user_id=$1 AND used=FALSE', [userId]);
+
+        const token = crypto.randomBytes(32).toString('hex');
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+        await runQuery(
+            'INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
+            [userId, token, expiresAt]
+        );
+
+        console.log(`🔑 Password reset token for ${email}: ${token}`);
+        // NOTE: In production, remove `token` from response and send via email
+        res.json({ success: true, token, expiresAt, message: 'Token generated. Use it within 1 hour.' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Reset password using a token
+app.post('/auth/reset-password', async (req, res) => {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password required' });
+    if (newPassword.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    try {
+        const r = await pool.query(
+            'SELECT * FROM password_reset_tokens WHERE token=$1 AND used=FALSE AND expires_at > NOW()',
+            [token]
+        );
+        if (!r.rows.length) return res.status(400).json({ error: 'Invalid or expired reset token' });
+
+        const resetRecord = r.rows[0];
+        const hashed = await bcrypt.hash(newPassword, 10);
+        await runQuery('UPDATE users SET password_hash=$1 WHERE id=$2', [hashed, resetRecord.user_id]);
+        await runQuery('UPDATE password_reset_tokens SET used=TRUE WHERE id=$1', [resetRecord.id]);
+
+        res.json({ success: true, message: 'Password updated. You can now log in.' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -264,7 +349,7 @@ app.get('/game/next', async (_req, res) => {
 });
 
 app.post('/game/submit', async (req, res) => {
-    const { questionId, selectedAnswer } = req.body;
+    const { questionId, selectedAnswer, anonymousId } = req.body;
     if (!questionId || !selectedAnswer) return res.status(400).json({ error: 'questionId and selectedAnswer required' });
     try {
         const qr = await pool.query('SELECT correct_answer FROM questions WHERE id=$1', [questionId]);
@@ -272,51 +357,135 @@ app.post('/game/submit', async (req, res) => {
         const correctAnswer = qr.rows[0].correct_answer.trim().toUpperCase();
         const isCorrect = selectedAnswer.toUpperCase() === correctAnswer;
         const u = getTokenUser(req);
+
         if (u) {
-            await pool.query('INSERT INTO game_sessions (user_id,question_id,selected_answer,is_correct) VALUES ($1,$2,$3,$4)',
-                [u.id, questionId, selectedAnswer, isCorrect]);
+            // Authenticated user — track normally
+            await pool.query(
+                'INSERT INTO game_sessions (user_id,question_id,selected_answer,is_correct) VALUES ($1,$2,$3,$4)',
+                [u.id, questionId, selectedAnswer, isCorrect]
+            );
             if (isCorrect) await pool.query('UPDATE users SET score=score+10 WHERE id=$1', [u.id]);
+        } else if (anonymousId) {
+            // Track under existing anonymous user record
+            const anonUser = await pool.query('SELECT id FROM users WHERE id=$1 AND is_anonymous=TRUE', [anonymousId]);
+            if (anonUser.rows.length) {
+                await pool.query(
+                    'INSERT INTO game_sessions (user_id,question_id,selected_answer,is_correct) VALUES ($1,$2,$3,$4)',
+                    [anonUser.rows[0].id, questionId, selectedAnswer, isCorrect]
+                );
+                if (isCorrect) await pool.query('UPDATE users SET score=score+10 WHERE id=$1', [anonUser.rows[0].id]);
+            }
         }
+
         res.json({ isCorrect, correctAnswer });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Create an anonymous tracking record for a guest player
+app.post('/game/anonymous-session', async (req, res) => {
+    try {
+        const anonEmail = `anon_${crypto.randomBytes(8).toString('hex')}@anonymous.local`;
+        const hash = await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10);
+        const r = await runQuery(
+            'INSERT INTO users (email,password_hash,role,is_anonymous) VALUES ($1,$2,$3,TRUE) RETURNING id',
+            [anonEmail, hash, 'player']
+        );
+        res.json({ anonymousId: r.rows[0].id });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Report a question — requires authentication
 app.post('/game/report', async (req, res) => {
+    const u = requireAuth(req, res);
+    if (!u) return;
     const { questionId, reason } = req.body;
     if (!questionId) return res.status(400).json({ error: 'questionId required' });
     try {
         const exists = await pool.query('SELECT id FROM questions WHERE id=$1', [questionId]);
         if (!exists.rows.length) return res.status(404).json({ error: 'Question not found' });
         await runQuery('INSERT INTO question_reports (question_id,reason) VALUES ($1,$2)', [questionId, reason || 'Reported by user']);
-        console.log(`🚩 Question ${questionId} reported`);
+        console.log(`🚩 Question ${questionId} reported by user ${u.id}`);
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── LEADERBOARD ────────────────────────────────────────────────────────────────
+// ── LEADERBOARD — excludes anonymous users ─────────────────────────────────────
 app.get('/leaderboard', async (_req, res) => {
-    try { res.json((await pool.query('SELECT id,email,score,role FROM users ORDER BY score DESC LIMIT 50')).rows); }
+    try {
+        res.json((await pool.query(
+            'SELECT id,email,score,role FROM users WHERE is_anonymous=FALSE ORDER BY score DESC LIMIT 50'
+        )).rows);
+    }
     catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── PENDING QUESTIONS (user submissions) ──────────────────────────────────────
+// ── PENDING QUESTIONS — requires authentication ────────────────────────────────
 app.post('/pending-questions', async (req, res) => {
+    const u = requireAuth(req, res);
+    if (!u) return;
     const { categoryName, text, options, correctAnswer, complexity } = req.body;
     if (!categoryName || !text || !options || !correctAnswer || !complexity)
         return res.status(400).json({ error: 'All fields required' });
     try {
-        const u = getTokenUser(req);
-        let email = 'anonymous';
-        if (u) {
-            const userRow = await pool.query('SELECT email FROM users WHERE id=$1', [u.id]);
-            if (userRow.rows.length) email = userRow.rows[0].email;
-        }
+        const userRow = await pool.query('SELECT email FROM users WHERE id=$1', [u.id]);
+        const email = userRow.rows.length ? userRow.rows[0].email : 'unknown';
         await runQuery(
             `INSERT INTO pending_questions
              (user_id,submitted_by_email,category_name,text,option_a,option_b,option_c,option_d,correct_answer,complexity)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-            [u?.id || null, email, categoryName, text, options.a, options.b, options.c, options.d, correctAnswer, complexity]
+            [u.id, email, categoryName, text, options.a, options.b, options.c, options.d, correctAnswer, complexity]
         );
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── ADMIN: USERS ───────────────────────────────────────────────────────────────
+app.get('/admin/users', async (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    try {
+        const r = await pool.query(`
+            SELECT u.id, u.email, u.role, u.score, u.is_anonymous,
+                   COUNT(gs.id)::int AS games_played,
+                   COUNT(gs.id) FILTER (WHERE gs.is_correct = TRUE)::int AS correct_answers
+            FROM users u
+            LEFT JOIN game_sessions gs ON gs.user_id = u.id
+            GROUP BY u.id
+            ORDER BY u.is_anonymous ASC, u.score DESC
+        `);
+        res.json(r.rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Admin resets a user's password directly
+app.post('/admin/users/:id/reset-password', async (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6)
+        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    try {
+        const userCheck = await pool.query('SELECT id, email FROM users WHERE id=$1 AND is_anonymous=FALSE', [req.params.id]);
+        if (!userCheck.rows.length) return res.status(404).json({ error: 'User not found' });
+        const hashed = await bcrypt.hash(newPassword, 10);
+        await runQuery('UPDATE users SET password_hash=$1 WHERE id=$2', [hashed, req.params.id]);
+        await auditLog(admin.id, 'ADMIN_RESET_PASSWORD', `Reset password for user ${userCheck.rows[0].email} (id:${req.params.id})`);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Admin changes a user's role
+app.patch('/admin/users/:id/role', async (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const { role } = req.body;
+    if (!['player', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+    if (parseInt(req.params.id) === admin.id) return res.status(400).json({ error: 'Cannot change your own role' });
+    try {
+        const userCheck = await pool.query('SELECT id, email FROM users WHERE id=$1 AND is_anonymous=FALSE', [req.params.id]);
+        if (!userCheck.rows.length) return res.status(404).json({ error: 'User not found' });
+        await runQuery('UPDATE users SET role=$1 WHERE id=$2', [role, req.params.id]);
+        await auditLog(admin.id, 'ADMIN_CHANGE_ROLE', `Changed role to '${role}' for user ${userCheck.rows[0].email}`);
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -335,7 +504,6 @@ app.post('/admin/approve/:id', async (req, res) => {
     try {
         const pq = (await pool.query('SELECT * FROM pending_questions WHERE id=$1', [req.params.id])).rows[0];
         if (!pq) return res.status(404).json({ error: 'Not found' });
-        // Find or create the category by name
         let cat = (await pool.query('SELECT id FROM categories WHERE LOWER(name)=LOWER($1)', [pq.category_name])).rows[0];
         if (!cat) cat = (await runQuery('INSERT INTO categories (name) VALUES ($1) RETURNING *', [pq.category_name])).rows[0];
         await runQuery(
@@ -379,6 +547,23 @@ app.delete('/admin/reports/:id', async (req, res) => {
     try {
         await runQuery('DELETE FROM question_reports WHERE id=$1', [req.params.id]);
         res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── ADMIN: AUDIT LOG ───────────────────────────────────────────────────────────
+app.get('/admin/audit-log', async (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    try {
+        const r = await pool.query(`
+            SELECT al.id, al.action, al.details, al.created_at,
+                   u.email AS admin_email
+            FROM audit_logs al
+            LEFT JOIN users u ON u.id = al.admin_id
+            ORDER BY al.created_at DESC
+            LIMIT 100
+        `);
+        res.json(r.rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
