@@ -1,180 +1,124 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL;
+const API_URL = process.env.REACT_APP_API_URL || '/api';
 
 export default function RequestCardModal({ onClose }) {
-    const [formData, setFormData] = useState({
-        categoryName: 'General Knowledge',
-        text: '',
-        optionA: '',
-        optionB: '',
-        optionC: '',
-        optionD: '',
-        correctAnswer: 'A',
-        complexity: 'medium'
+    const [form, setForm] = useState({
+        categoryName: '', text: '',
+        optionA: '', optionB: '', optionC: '', optionD: '',
+        correctAnswer: 'A', complexity: 'medium'
     });
+    const [submitting, setSubmitting] = useState(false);
+    const [success, setSuccess]       = useState(false);
+
+    const set = (field) => (e) => setForm(f => ({ ...f, [field]: e.target.value }));
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        const { categoryName, text, optionA, optionB, optionC, optionD } = form;
+        if (!categoryName.trim() || !text.trim() || !optionA.trim() || !optionB.trim() || !optionC.trim() || !optionD.trim())
+            return alert('Please fill in all fields.');
+
+        setSubmitting(true);
         try {
-            const res = await axios.post(`${API_URL}/requests/add-question`, {
-                categoryName: formData.categoryName,
-                text: formData.text,
-                options: {
-                    a: formData.optionA,
-                    b: formData.optionB,
-                    c: formData.optionC,
-                    d: formData.optionD
+            const token = localStorage.getItem('token');
+            await axios.post(
+                `${API_URL}/pending-questions`,
+                {
+                    categoryName: form.categoryName.trim(),
+                    text: form.text.trim(),
+                    options: { a: form.optionA, b: form.optionB, c: form.optionC, d: form.optionD },
+                    correctAnswer: form.correctAnswer,
+                    complexity: form.complexity
                 },
-                correctAnswer: formData.correctAnswer,
-                complexity: formData.complexity
-            });
-            alert("Thank you! Your question has been submitted to the admins for approval.");
-            onClose();
+                token ? { headers: { Authorization: `Bearer ${token}` } } : {}
+            );
+            setSuccess(true);
         } catch (err) {
-            console.error("Submission error:", err);
-            alert("Failed to submit. The admin might have disabled this feature.");
+            alert('Submission failed: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setSubmitting(false);
         }
+    };
+
+    const iStyle = {
+        width: '100%', boxSizing: 'border-box', padding: '8px 12px',
+        borderRadius: '6px', border: '1px solid var(--border-color)',
+        backgroundColor: 'var(--card-bg)', color: 'var(--text-color)', fontSize: '14px'
     };
 
     return (
         <div style={{
-            position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-            backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center'
+            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)',
+            zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center',
+            padding: '20px', boxSizing: 'border-box'
         }}>
-            <div className="card" style={{ 
-                width: '90%', 
-                maxWidth: '600px', 
-                position: 'relative',
-                padding: '30px'
-            }}>
-                <button 
-                    onClick={onClose} 
-                    style={{ 
-                        float: 'right', 
-                        background: 'none', 
-                        border: 'none', 
-                        fontSize: '28px', 
-                        cursor: 'pointer',
-                        color: '#888'
-                    }}
-                >
-                    &times;
-                </button>
-                <h2 style={{ marginBottom: '20px' }}>📝 Request to Add a Trivia Card</h2>
-                <p style={{ color: 'var(--text-color)', marginBottom: '20px' }}>
-                    Suggest a question. An Admin must approve it before it appears in the game.
+            <div className="card" style={{ width: '100%', maxWidth: '580px', padding: '28px', maxHeight: '90vh', overflowY: 'auto', position: 'relative' }}>
+                <button onClick={onClose} style={{
+                    position: 'absolute', top: '14px', right: '16px',
+                    background: 'none', border: 'none', fontSize: '26px', cursor: 'pointer', color: '#888', lineHeight: 1
+                }}>×</button>
+
+                <h2 style={{ marginBottom: '6px', paddingRight: '30px' }}>📝 Suggest a Question</h2>
+                <p style={{ color: '#888', marginBottom: '20px', fontSize: '13px' }}>
+                    Submitted questions go to the admin review queue before appearing in the game.
                 </p>
-                
-                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                    <div>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Category Name</label>
-                        <input 
-                            type="text" 
-                            value={formData.categoryName}
-                            onChange={e => setFormData({...formData, categoryName: e.target.value})}
-                            placeholder="e.g. Space, History, Coding"
-                            required
-                            className="btn"
-                            style={{ width: '100%', boxSizing: 'border-box' }}
-                        />
-                    </div>
-                    
-                    <div>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Question Text</label>
-                        <textarea 
-                            value={formData.text}
-                            onChange={e => setFormData({...formData, text: e.target.value})}
-                            placeholder="What is the question?"
-                            required
-                            className="btn"
-                            style={{ width: '100%', minHeight: '100px', boxSizing: 'border-box' }}
-                        />
-                    </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                        <div>
-                            <label>Option A</label>
-                            <input 
-                                value={formData.optionA} 
-                                onChange={e => setFormData({...formData, optionA: e.target.value})}
-                                placeholder="A" 
-                                required 
-                                className="btn" 
-                                style={{ width: '100%', boxSizing: 'border-box' }}
-                            />
-                        </div>
-                        <div>
-                            <label>Option B</label>
-                            <input 
-                                value={formData.optionB} 
-                                onChange={e => setFormData({...formData, optionB: e.target.value})}
-                                placeholder="B" 
-                                required 
-                                className="btn" 
-                                style={{ width: '100%', boxSizing: 'border-box' }}
-                            />
-                        </div>
-                        <div>
-                            <label>Option C</label>
-                            <input 
-                                value={formData.optionC} 
-                                onChange={e => setFormData({...formData, optionC: e.target.value})}
-                                placeholder="C" 
-                                required 
-                                className="btn" 
-                                style={{ width: '100%', boxSizing: 'border-box' }}
-                            />
-                        </div>
-                        <div>
-                            <label>Option D</label>
-                            <input 
-                                value={formData.optionD} 
-                                onChange={e => setFormData({...formData, optionD: e.target.value})}
-                                placeholder="D" 
-                                required 
-                                className="btn" 
-                                style={{ width: '100%', boxSizing: 'border-box' }}
-                            />
-                        </div>
+                {success ? (
+                    <div style={{ textAlign: 'center', padding: '24px 0' }}>
+                        <div style={{ fontSize: '52px', marginBottom: '14px' }}>🎉</div>
+                        <h3 style={{ color: '#28a745', marginBottom: '8px' }}>Submitted!</h3>
+                        <p style={{ color: '#888', marginBottom: '22px' }}>An admin will review your question soon.</p>
+                        <button onClick={onClose} className="btn btn-primary" style={{ padding: '10px 32px' }}>Close</button>
                     </div>
-
-                    <div>
-                        <strong>Correct Answer:</strong>
-                        <div style={{ display: 'flex', gap: '20px', marginTop: '5px' }}>
-                            {['A','B','C','D'].map(c => (
-                                <label key={c} style={{ cursor: 'pointer' }}>
-                                    <input 
-                                        type="radio" 
-                                        name="correct" 
-                                        value={c} 
-                                        checked={formData.correctAnswer === c} 
-                                        onChange={e => setFormData({...formData, correctAnswer: e.target.value})}
-                                    /> {c}
-                                </label>
+                ) : (
+                    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold', fontSize: '13px' }}>Category</label>
+                            <input value={form.categoryName} onChange={set('categoryName')}
+                                placeholder="e.g. Science, History, Pop Culture" required style={iStyle} />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold', fontSize: '13px' }}>Question</label>
+                            <textarea value={form.text} onChange={set('text')}
+                                placeholder="What is your trivia question?" required rows={3} style={iStyle} />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                            {[['optionA','A'],['optionB','B'],['optionC','C'],['optionD','D']].map(([field, lbl]) => (
+                                <div key={lbl}>
+                                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold', fontSize: '13px' }}>Option {lbl}</label>
+                                    <input value={form[field]} onChange={set(field)} placeholder={`Option ${lbl}...`} required style={iStyle} />
+                                </div>
                             ))}
                         </div>
-                    </div>
-
-                    <div>
-                        <label style={{ marginRight: '10px' }}>Complexity: </label>
-                        <select 
-                            value={formData.complexity}
-                            onChange={e => setFormData({...formData, complexity: e.target.value})}
-                            className="btn"
-                            style={{ padding: '8px' }}
-                        >
-                            <option value="easy">Easy</option>
-                            <option value="medium">Medium</option>
-                            <option value="hard">Hard</option>
-                        </select>
-                    </div>
-
-                    <button type="submit" className="btn btn-primary" style={{ marginTop: '20px' }}>
-                        Submit for Approval
-                    </button>
-                </form>
+                        <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <div>
+                                <strong style={{ fontSize: '13px' }}>Correct: </strong>
+                                {['A','B','C','D'].map(c => (
+                                    <label key={c} style={{ marginLeft: '10px', cursor: 'pointer', fontSize: '14px' }}>
+                                        <input type="radio" name="modalCorrect" value={c}
+                                            checked={form.correctAnswer === c} onChange={set('correctAnswer')} /> {c}
+                                    </label>
+                                ))}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <strong style={{ fontSize: '13px' }}>Difficulty:</strong>
+                                <select value={form.complexity} onChange={set('complexity')}
+                                    style={{ ...iStyle, width: 'auto', padding: '6px 10px' }}>
+                                    <option value="easy">Easy</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="hard">Hard</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="submit" className="btn btn-primary"
+                            style={{ padding: '12px', fontSize: '14px', marginTop: '6px' }}
+                            disabled={submitting}>
+                            {submitting ? '⏳ Submitting...' : '📨 Submit for Review'}
+                        </button>
+                    </form>
+                )}
             </div>
         </div>
     );

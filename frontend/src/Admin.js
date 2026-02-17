@@ -1,199 +1,540 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL;
+const API_URL = process.env.REACT_APP_API_URL || '/api';
 
-export default function Admin({ user }) {
-    const [activeTab, setActiveTab] = useState('add'); // 'add' or 'review'
-    const [pendingQueue, setPendingQueue] = useState([]);
-    const [categories, setCategories] = useState(['General Knowledge', 'Science', 'History']);
+const authCfg = () => {
+    const token = localStorage.getItem('token');
+    return token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+};
 
-    // Form State
-    const [qText, setQText] = useState('');
-    const [qOptionA, setQOptionA] = useState('');
-    const [qOptionB, setQOptionB] = useState('');
-    const [qOptionC, setQOptionC] = useState('');
-    const [qOptionD, setQOptionD] = useState('');
-    const [qCorrect, setQCorrect] = useState('A');
-    const [qComplexity, setQComplexity] = useState('easy');
+const diffColor = { easy: '#28a745', medium: '#ffc107', hard: '#dc3545' };
+
+const Badge = ({ color, text }) => (
+    <span style={{
+        backgroundColor: color, color: color === '#ffc107' ? '#333' : 'white',
+        padding: '2px 9px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold',
+        textTransform: 'uppercase', whiteSpace: 'nowrap'
+    }}>{text}</span>
+);
+
+const Toast = ({ msg }) => msg ? (
+    <div style={{
+        padding: '12px 18px', marginBottom: '18px', borderRadius: '8px',
+        backgroundColor: msg.startsWith('❌') ? '#f8d7da' : '#d4edda',
+        color: msg.startsWith('❌') ? '#721c24' : '#155724',
+        fontWeight: 'bold', border: `1px solid ${msg.startsWith('❌') ? '#f5c6cb' : '#c3e6cb'}`
+    }}>{msg}</div>
+) : null;
+
+// ─── Question Form (shared between Add and Edit) ───────────────────────────────
+function QuestionForm({ categories, onSubmit, initial = {}, submitLabel = '✅ Add Question', onCancel }) {
+    const [catId, setCatId]     = useState(initial.category_id ?? categories[0]?.id ?? '');
+    const [text, setText]       = useState(initial.text ?? '');
+    const [optA, setOptA]       = useState(initial.option_a ?? '');
+    const [optB, setOptB]       = useState(initial.option_b ?? '');
+    const [optC, setOptC]       = useState(initial.option_c ?? '');
+    const [optD, setOptD]       = useState(initial.option_d ?? '');
+    const [correct, setCorrect] = useState(initial.correct_answer?.toUpperCase() ?? 'A');
+    const [level, setLevel]     = useState(initial.complexity ?? 'easy');
 
     useEffect(() => {
-        if (activeTab === 'review') {
-            fetchQueue();
-        }
-    }, [activeTab]);
+        if (!initial.category_id && categories.length > 0) setCatId(categories[0].id);
+    }, [categories]);
 
-    const fetchQueue = async () => {
-        try {
-            const res = await axios.get(`${API_URL}/admin/queue`);
-            setPendingQueue(res.data);
-        } catch (err) {
-            console.error("Failed to load queue", err);
-            alert("Could not load queue. Are you logged in as Admin?");
-        }
+    const iStyle = {
+        width: '100%', boxSizing: 'border-box', padding: '8px 10px',
+        borderRadius: '6px', border: '1px solid var(--border-color)',
+        backgroundColor: 'var(--card-bg)', color: 'var(--text-color)', fontSize: '14px'
     };
 
-    const handleApprove = async (id) => {
-        try {
-            await axios.post(`${API_URL}/admin/approve/${id}`);
-            alert("Question Approved and added to game!");
-            fetchQueue();
-        } catch (err) {
-            alert("Approval failed. Check console.");
-        }
+    const handleSubmit = () => {
+        if (!text.trim() || !optA.trim() || !optB.trim() || !optC.trim() || !optD.trim())
+            return alert('Please fill in all fields.');
+        if (!catId) return alert('Select a category first.');
+        onSubmit({ categoryId: Number(catId), text, options: { a: optA, b: optB, c: optC, d: optD }, correctAnswer: correct, complexity: level });
     };
 
-    const handleDeny = async (id) => {
-        try {
-            await axios.post(`${API_URL}/admin/deny/${id}`);
-            alert("Question Denied.");
-            fetchQueue();
-        } catch (err) {
-            alert("Denial failed.");
-        }
-    };
-
-    const addCategory = async () => {
-        alert("Category adding feature disabled for this demo. Use 'General Knowledge' as default.");
-        // Implementation similar to previous code
-    };
-
-    const addQuestion = async () => {
-        if (!qText || !qOptionA || !qOptionB || !qOptionC || !qOptionD) {
-            alert("Please fill in all fields.");
-            return;
-        }
-
-        const payload = {
-            categoryId: 1, 
-            text: qText,
-            options: { a: qOptionA, b: qOptionB, c: qOptionC, d: qOptionD },
-            correctAnswer: qCorrect,
-            complexity: qComplexity
-        };
-
-        try {
-            await axios.post(`${API_URL}/questions`, payload);
-            alert("✅ Question Added Directly to Game!");
-            // Clear form
-            setQText(''); setQOptionA(''); setQOptionB(''); setQOptionC(''); setQOptionD('');
-            setQCorrect('A');
-        } catch (err) {
-            alert("Error adding question. Is the backend running?");
-        }
-    };
+    if (categories.length === 0) return (
+        <div style={{ padding: '20px', backgroundColor: '#fff3cd', borderRadius: '8px', color: '#856404' }}>
+            ⚠️ No categories exist. Go to the <strong>Categories</strong> tab and create one first.
+        </div>
+    );
 
     return (
-        <div className="card" style={{ padding: '30px' }}>
-            <h2>🏆 Admin Dashboard</h2>
-            
-            <div style={{ marginBottom: '40px' }}>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                    <button 
-                        className={`btn ${activeTab === 'add' ? 'btn-primary' : ''}`} 
-                        onClick={() => setActiveTab('add')}
-                    >
-                        ➕ Add Question (Direct)
-                    </button>
-                    <button 
-                        className={`btn ${activeTab === 'review' ? 'btn-primary' : ''}`} 
-                        onClick={() => setActiveTab('review')}
-                    >
-                        📋 Review Queue ({pendingQueue.length})
-                    </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div>
+                <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold', fontSize: '13px' }}>Category</label>
+                <select value={catId} onChange={e => setCatId(e.target.value)} style={iStyle}>
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+            </div>
+            <div>
+                <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold', fontSize: '13px' }}>Question</label>
+                <textarea value={text} onChange={e => setText(e.target.value)} rows={3} style={iStyle} placeholder="Write the question here..." />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                {[['A', optA, setOptA], ['B', optB, setOptB], ['C', optC, setOptC], ['D', optD, setOptD]].map(([lbl, val, set]) => (
+                    <div key={lbl}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold', fontSize: '13px' }}>Option {lbl}</label>
+                        <input value={val} onChange={e => set(e.target.value)} style={iStyle} placeholder={`Option ${lbl}...`} />
+                    </div>
+                ))}
+            </div>
+            <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div>
+                    <strong style={{ fontSize: '13px' }}>Correct: </strong>
+                    {['A','B','C','D'].map(c => (
+                        <label key={c} style={{ marginLeft: '10px', cursor: 'pointer', fontSize: '14px' }}>
+                            <input type="radio" name={`correct-${submitLabel}`} value={c}
+                                checked={correct === c} onChange={e => setCorrect(e.target.value)} /> {c}
+                        </label>
+                    ))}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <strong style={{ fontSize: '13px' }}>Difficulty:</strong>
+                    <select value={level} onChange={e => setLevel(e.target.value)}
+                        style={{ ...iStyle, width: 'auto', padding: '6px 10px' }}>
+                        <option value="easy">Easy</option>
+                        <option value="medium">Medium</option>
+                        <option value="hard">Hard</option>
+                    </select>
                 </div>
             </div>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                <button onClick={handleSubmit} className="btn btn-primary" style={{ flex: 1, padding: '11px', fontSize: '14px' }}>
+                    {submitLabel}
+                </button>
+                {onCancel && (
+                    <button onClick={onCancel} className="btn" style={{ padding: '11px 20px', fontSize: '14px' }}>Cancel</button>
+                )}
+            </div>
+        </div>
+    );
+}
 
-            {activeTab === 'add' ? (
-                <div style={{ marginTop: '20px' }}>
-                    <h3>Direct Question Entry</h3>
-                    <div className="form-group" style={{ marginBottom: '15px' }}>
-                        <label>Question Text</label>
-                        <textarea 
-                            value={qText} 
-                            onChange={e => setQText(e.target.value)} 
-                            className="btn"
-                            style={{ width: '100%', minHeight: '80px', boxSizing: 'border-box' }} 
-                        />
-                    </div>
+// ─── Main Admin Component ──────────────────────────────────────────────────────
+export default function Admin() {
+    const [tab, setTab]               = useState('questions');
+    const [toast, setToast]           = useState('');
+    const [categories, setCategories] = useState([]);
+    const [selCat, setSelCat]         = useState(null);
+    const [questions, setQuestions]   = useState([]);
+    const [qLoading, setQLoading]     = useState(false);
+    const [editingQ, setEditingQ]     = useState(null);
+    const [newCatName, setNewCatName] = useState('');
+    const [pending, setPending]       = useState([]);
+    const [reported, setReported]     = useState([]);
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                        <input value={qOptionA} onChange={e => setQOptionA(e.target.value)} placeholder="Option A" className="btn" />
-                        <input value={qOptionB} onChange={e => setQOptionB(e.target.value)} placeholder="Option B" className="btn" />
-                        <input value={qOptionC} onChange={e => setQOptionC(e.target.value)} placeholder="Option C" className="btn" />
-                        <input value={qOptionD} onChange={e => setQOptionD(e.target.value)} placeholder="Option D" className="btn" />
-                    </div>
+    const flash = useCallback((m) => { setToast(m); setTimeout(() => setToast(''), 3500); }, []);
 
-                    <div style={{ display: 'flex', gap: '20px', marginTop: '15px', alignItems: 'center' }}>
-                        <div>
-                            <strong>Correct Answer:</strong>
-                            {['A','B','C','D'].map(c => (
-                                <label key={c} style={{ cursor: 'pointer', marginLeft: '10px' }}>
-                                    <input type="radio" name="correct" value={c} checked={qCorrect === c} onChange={e => setQCorrect(e.target.value)} /> {c}
-                                </label>
-                            ))}
-                        </div>
-                    </div>
+    const loadCategories = useCallback(async () => {
+        try {
+            const r = await axios.get(`${API_URL}/categories`, authCfg());
+            setCategories(r.data);
+            if (r.data.length > 0 && !selCat) setSelCat(r.data[0]);
+        } catch { flash('❌ Failed to load categories'); }
+    }, []);
 
-                    <div style={{ display: 'flex', gap: '20px', marginTop: '15px', alignItems: 'center' }}>
-                         <div>
-                            <strong>Complexity:</strong>
-                            <select value={qComplexity} onChange={e => setQComplexity(e.target.value)} className="btn" style={{ marginLeft: '10px' }}>
-                                <option value="easy">Easy</option>
-                                <option value="medium">Medium</option>
-                                <option value="hard">Hard</option>
-                            </select>
-                         </div>
-                    </div>
+    const loadQuestions = useCallback(async (catId) => {
+        setQLoading(true); setQuestions([]);
+        try {
+            const r = await axios.get(`${API_URL}/categories/${catId}/questions`, authCfg());
+            setQuestions(r.data);
+        } catch { flash('❌ Failed to load questions'); }
+        finally { setQLoading(false); }
+    }, []);
 
-                    <button onClick={addQuestion} className="btn btn-primary" style={{ marginTop: '30px', width: '100%', padding: '15px' }}>
-                        ✅ Submit Question
-                    </button>
-                </div>
-            ) : (
-                <div style={{ marginTop: '20px' }}>
-                    <h3>📥 Pending Question Requests</h3>
-                    {pendingQueue.length === 0 ? (
-                        <p style={{ color: '#888' }}>No pending questions to review.</p>
-                    ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            {pendingQueue.map(q => (
-                                <div key={q.id} className="card" style={{ borderLeft: '5px solid #ffc107', padding: '15px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ fontSize: '0.8rem', color: '#888' }}>
-                                            User: {q.submitted_by_email} | {new Date(q.submitted_at).toLocaleDateString()}
-                                        </span>
-                                        <span style={{ fontSize: '0.8rem', backgroundColor: '#ffc107', color: 'black', padding: '2px 6px', borderRadius: '4px' }}>
-                                            {q.complexity.toUpperCase()}
-                                        </span>
-                                    </div>
-                                    <h4 style={{ color: 'var(--text-color)', marginTop: '10px' }}>{q.text}</h4>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '10px' }}>
-                                        <div>A) {q.option_a}</div>
-                                        <div>B) {q.option_b}</div>
-                                        <div>C) {q.option_c}</div>
-                                        <div>D) {q.option_d}</div>
-                                    </div>
-                                    <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
-                                        <button 
-                                            className="btn" 
-                                            style={{ backgroundColor: '#28a745', color: 'white' }}
-                                            onClick={() => handleApprove(q.id)}
-                                        >
-                                            ✅ Approve & Add to Game
-                                        </button>
-                                        <button 
-                                            className="btn" 
-                                            style={{ backgroundColor: '#dc3545', color: 'white' }}
-                                            onClick={() => handleDeny(q.id)}
-                                        >
-                                            ❌ Deny
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
+    const loadReview = useCallback(async () => {
+        try {
+            const [pRes, rRes] = await Promise.all([
+                axios.get(`${API_URL}/admin/queue`, authCfg()),
+                axios.get(`${API_URL}/admin/reported`, authCfg()),
+            ]);
+            setPending(pRes.data);
+            setReported(rRes.data);
+        } catch { flash('❌ Failed to load review queue'); }
+    }, []);
+
+    useEffect(() => { loadCategories(); }, []);
+    useEffect(() => { if (tab === 'review') loadReview(); }, [tab]);
+    useEffect(() => { if (tab === 'questions' && selCat) loadQuestions(selCat.id); }, [selCat, tab]);
+
+    // ── Category actions ───────────────────────────────────────────────────────
+    const addCategory = async () => {
+        if (!newCatName.trim()) return alert('Enter a name.');
+        try {
+            await axios.post(`${API_URL}/categories`, { name: newCatName.trim() }, authCfg());
+            setNewCatName('');
+            flash('✅ Category created');
+            loadCategories();
+        } catch (e) { flash('❌ ' + (e.response?.data?.error || 'Failed')); }
+    };
+
+    const deleteCategory = async (cat) => {
+        if (!window.confirm(`Delete "${cat.name}" and ALL its questions? This cannot be undone.`)) return;
+        try {
+            await axios.delete(`${API_URL}/categories/${cat.id}`, authCfg());
+            flash('🗑️ Category deleted');
+            setSelCat(null); setQuestions([]);
+            loadCategories();
+        } catch (e) { flash('❌ ' + (e.response?.data?.error || 'Delete failed')); }
+    };
+
+    // ── Question actions ───────────────────────────────────────────────────────
+    const addQuestion = async (data) => {
+        try {
+            await axios.post(`${API_URL}/questions`, data, authCfg());
+            flash('✅ Question added');
+            const targetCat = categories.find(c => c.id === data.categoryId);
+            if (targetCat) { setSelCat(targetCat); loadQuestions(data.categoryId); setTab('questions'); }
+        } catch (e) { flash('❌ ' + (e.response?.data?.error || 'Failed')); }
+    };
+
+    const saveEdit = async (data) => {
+        try {
+            await axios.put(`${API_URL}/questions/${editingQ.id}`, data, authCfg());
+            flash('✅ Question updated');
+            setEditingQ(null);
+            loadQuestions(selCat.id);
+        } catch (e) { flash('❌ ' + (e.response?.data?.error || 'Failed')); }
+    };
+
+    const toggleDisable = async (q) => {
+        try {
+            await axios.patch(`${API_URL}/questions/${q.id}`, { disabled: !q.disabled }, authCfg());
+            flash(q.disabled ? '✅ Question enabled' : '🚫 Question disabled');
+            loadQuestions(selCat.id);
+        } catch { flash('❌ Toggle failed'); }
+    };
+
+    const deleteQuestion = async (id) => {
+        if (!window.confirm('Permanently delete this question?')) return;
+        try {
+            await axios.delete(`${API_URL}/questions/${id}`, authCfg());
+            flash('🗑️ Question deleted');
+            loadQuestions(selCat.id);
+        } catch { flash('❌ Delete failed'); }
+    };
+
+    // ── Review actions ─────────────────────────────────────────────────────────
+    const approvePending = async (id) => {
+        try {
+            await axios.post(`${API_URL}/admin/approve/${id}`, {}, authCfg());
+            flash('✅ Approved & added to game');
+            loadReview(); loadCategories();
+        } catch { flash('❌ Approval failed'); }
+    };
+
+    const denyPending = async (id) => {
+        try {
+            await axios.post(`${API_URL}/admin/deny/${id}`, {}, authCfg());
+            flash('Submission denied');
+            loadReview();
+        } catch { flash('❌ Denial failed'); }
+    };
+
+    const dismissReport = async (reportId) => {
+        try {
+            await axios.delete(`${API_URL}/admin/reports/${reportId}`, authCfg());
+            flash('👍 Report dismissed');
+            loadReview();
+        } catch { flash('❌ Failed to dismiss'); }
+    };
+
+    const disableFromReport = async (questionId, reportId) => {
+        try {
+            await axios.patch(`${API_URL}/questions/${questionId}`, { disabled: true }, authCfg());
+            await axios.delete(`${API_URL}/admin/reports/${reportId}`, authCfg());
+            flash('🚫 Question disabled & report cleared');
+            loadReview();
+        } catch { flash('❌ Failed'); }
+    };
+
+    // ── Styles ─────────────────────────────────────────────────────────────────
+    const tabStyle = (t) => ({
+        padding: '9px 18px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+        fontWeight: 'bold', fontSize: '13px',
+        backgroundColor: tab === t ? 'var(--btn-primary)' : 'var(--card-bg)',
+        color: tab === t ? 'white' : 'var(--text-color)',
+        boxShadow: tab === t ? '0 2px 8px rgba(0,0,0,0.15)' : '0 1px 3px rgba(0,0,0,0.08)',
+    });
+
+    const cardStyle = {
+        border: '1px solid var(--border-color)', borderRadius: '8px',
+        padding: '16px', backgroundColor: 'var(--card-bg)', marginBottom: '10px'
+    };
+
+    const reviewBadgeCount = pending.length + reported.length;
+
+    return (
+        <div style={{ paddingBottom: '40px' }}>
+            <h2 style={{ marginBottom: '4px' }}>🛠️ Admin Dashboard</h2>
+            <p style={{ color: '#888', marginBottom: '20px', fontSize: '13px' }}>
+                Manage categories, questions, and review user submissions.
+            </p>
+
+            <Toast msg={toast} />
+
+            {/* Tab bar */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '28px', flexWrap: 'wrap' }}>
+                <button style={tabStyle('questions')}  onClick={() => setTab('questions')}>📚 Questions</button>
+                <button style={tabStyle('add')}        onClick={() => setTab('add')}>➕ Add Question</button>
+                <button style={tabStyle('categories')} onClick={() => setTab('categories')}>📁 Categories</button>
+                <button style={tabStyle('review')}     onClick={() => setTab('review')}>
+                    📋 Review Queue
+                    {reviewBadgeCount > 0 && (
+                        <span style={{ marginLeft: '7px', backgroundColor: '#dc3545', color: 'white', borderRadius: '50%', padding: '1px 6px', fontSize: '11px' }}>
+                            {reviewBadgeCount}
+                        </span>
                     )}
+                </button>
+            </div>
+
+            {/* ── QUESTIONS ──────────────────────────────────────────────────── */}
+            {tab === 'questions' && (
+                <div>
+                    {categories.length === 0 ? (
+                        <div style={{ ...cardStyle, textAlign: 'center', padding: '40px', color: '#888' }}>
+                            <div style={{ fontSize: '40px', marginBottom: '12px' }}>📁</div>
+                            No categories yet.{' '}
+                            <button className="btn btn-primary" style={{ marginLeft: '8px' }} onClick={() => setTab('categories')}>Create one →</button>
+                        </div>
+                    ) : (
+                        <>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '20px' }}>
+                                {categories.map(c => (
+                                    <button key={c.id} onClick={() => { setSelCat(c); setEditingQ(null); loadQuestions(c.id); }}
+                                        style={{
+                                            padding: '6px 16px', borderRadius: '20px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px',
+                                            border: '2px solid var(--btn-primary)',
+                                            backgroundColor: selCat?.id === c.id ? 'var(--btn-primary)' : 'transparent',
+                                            color: selCat?.id === c.id ? 'white' : 'var(--text-color)',
+                                        }}>
+                                        {c.name}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {selCat && (
+                                <>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                                        <h3 style={{ margin: 0 }}>
+                                            {selCat.name}
+                                            <span style={{ marginLeft: '10px', fontSize: '14px', color: '#888', fontWeight: 'normal' }}>
+                                                — {questions.length} question{questions.length !== 1 ? 's' : ''}
+                                            </span>
+                                        </h3>
+                                    </div>
+
+                                    {qLoading && <p style={{ color: '#888' }}>Loading...</p>}
+
+                                    {!qLoading && questions.length === 0 && (
+                                        <div style={{ ...cardStyle, textAlign: 'center', padding: '30px', color: '#888' }}>
+                                            No questions in this category.{' '}
+                                            <button className="btn btn-primary" style={{ marginLeft: '8px' }} onClick={() => setTab('add')}>Add one →</button>
+                                        </div>
+                                    )}
+
+                                    {questions.map(q => (
+                                        <div key={q.id} style={{ ...cardStyle, opacity: q.disabled ? 0.55 : 1, borderLeft: `4px solid ${q.disabled ? '#6c757d' : (diffColor[q.complexity] || '#aaa')}` }}>
+                                            {editingQ?.id === q.id ? (
+                                                <>
+                                                    <p style={{ fontWeight: 'bold', marginBottom: '12px', color: 'var(--text-color)' }}>✏️ Editing Question #{q.id}</p>
+                                                    <QuestionForm categories={categories} initial={editingQ}
+                                                        onSubmit={saveEdit} submitLabel="💾 Save Changes" onCancel={() => setEditingQ(null)} />
+                                                </>
+                                            ) : (
+                                                <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                                                            <Badge color={diffColor[q.complexity] || '#6c757d'} text={q.complexity} />
+                                                            {q.disabled && <Badge color="#6c757d" text="disabled" />}
+                                                            <span style={{ fontSize: '11px', color: '#aaa' }}>#{q.id}</span>
+                                                        </div>
+                                                        <p style={{ margin: '0 0 10px', fontWeight: '600', color: 'var(--text-color)', lineHeight: '1.4' }}>{q.text}</p>
+                                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
+                                                            {['a','b','c','d'].map(l => {
+                                                                const isCorrect = q.correct_answer?.toLowerCase() === l;
+                                                                return (
+                                                                    <div key={l} style={{
+                                                                        padding: '4px 8px', borderRadius: '4px', fontSize: '13px',
+                                                                        backgroundColor: isCorrect ? '#d4edda' : 'var(--bg-color)',
+                                                                        color: isCorrect ? '#155724' : 'var(--text-color)',
+                                                                        fontWeight: isCorrect ? 'bold' : 'normal'
+                                                                    }}>
+                                                                        {l.toUpperCase()}) {q[`option_${l}`]}{isCorrect ? ' ✓' : ''}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
+                                                        <button className="btn" style={{ fontSize: '12px', padding: '5px 10px' }} onClick={() => setEditingQ(q)}>✏️ Edit</button>
+                                                        <button className="btn" onClick={() => toggleDisable(q)}
+                                                            style={{ fontSize: '12px', padding: '5px 10px', backgroundColor: q.disabled ? '#28a745' : '#ffc107', color: q.disabled ? 'white' : '#333' }}>
+                                                            {q.disabled ? '✅ Enable' : '🚫 Disable'}
+                                                        </button>
+                                                        <button className="btn" onClick={() => deleteQuestion(q.id)}
+                                                            style={{ fontSize: '12px', padding: '5px 10px', backgroundColor: '#dc3545', color: 'white' }}>
+                                                            🗑️ Delete
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </>
+                            )}
+                        </>
+                    )}
+                </div>
+            )}
+
+            {/* ── ADD QUESTION ───────────────────────────────────────────────── */}
+            {tab === 'add' && (
+                <div style={cardStyle}>
+                    <h3 style={{ marginBottom: '18px' }}>➕ Add New Question</h3>
+                    <QuestionForm categories={categories} onSubmit={addQuestion} />
+                </div>
+            )}
+
+            {/* ── CATEGORIES ─────────────────────────────────────────────────── */}
+            {tab === 'categories' && (
+                <div>
+                    <div style={{ ...cardStyle, marginBottom: '20px' }}>
+                        <h3 style={{ marginBottom: '14px' }}>➕ New Category</h3>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <input value={newCatName} onChange={e => setNewCatName(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && addCategory()}
+                                placeholder="e.g. Science, History, Sports..."
+                                style={{ flex: 1, padding: '9px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', backgroundColor: 'var(--card-bg)', color: 'var(--text-color)', fontSize: '14px' }}
+                            />
+                            <button onClick={addCategory} className="btn btn-primary" style={{ padding: '9px 20px' }}>Add</button>
+                        </div>
+                    </div>
+
+                    <h3 style={{ marginBottom: '12px' }}>Existing ({categories.length})</h3>
+                    {categories.length === 0 && <p style={{ color: '#888' }}>No categories yet.</p>}
+                    {categories.map(c => (
+                        <div key={c.id} style={{ ...cardStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontWeight: 'bold', color: 'var(--text-color)' }}>{c.name}</span>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button className="btn" style={{ fontSize: '12px', padding: '5px 12px' }}
+                                    onClick={() => { setSelCat(c); loadQuestions(c.id); setTab('questions'); }}>
+                                    📚 Browse
+                                </button>
+                                <button className="btn" style={{ fontSize: '12px', padding: '5px 12px', backgroundColor: '#dc3545', color: 'white' }}
+                                    onClick={() => deleteCategory(c)}>
+                                    🗑️ Delete
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* ── REVIEW QUEUE ───────────────────────────────────────────────── */}
+            {tab === 'review' && (
+                <div>
+                    <h3 style={{ marginBottom: '12px' }}>
+                        📥 User Submissions
+                        <span style={{ marginLeft: '8px', color: '#888', fontWeight: 'normal', fontSize: '14px' }}>({pending.length} pending)</span>
+                    </h3>
+                    {pending.length === 0 ? (
+                        <p style={{ color: '#888', marginBottom: '28px' }}>No pending submissions.</p>
+                    ) : pending.map(q => (
+                        <div key={q.id} style={{ ...cardStyle, borderLeft: '4px solid #ffc107', marginBottom: '14px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
+                                <span style={{ fontSize: '12px', color: '#888' }}>
+                                    From <strong>{q.submitted_by_email || 'anonymous'}</strong> · {new Date(q.submitted_at).toLocaleDateString()}
+                                </span>
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                    <Badge color="#6c757d" text={q.category_name} />
+                                    <Badge color={diffColor[q.complexity] || '#6c757d'} text={q.complexity} />
+                                </div>
+                            </div>
+                            <p style={{ fontWeight: '600', color: 'var(--text-color)', margin: '0 0 10px' }}>{q.text}</p>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', marginBottom: '14px' }}>
+                                {['a','b','c','d'].map(l => {
+                                    const isCorrect = q.correct_answer?.toLowerCase() === l;
+                                    return (
+                                        <div key={l} style={{
+                                            padding: '4px 8px', borderRadius: '4px', fontSize: '13px',
+                                            backgroundColor: isCorrect ? '#d4edda' : 'var(--bg-color)',
+                                            color: isCorrect ? '#155724' : 'var(--text-color)',
+                                            fontWeight: isCorrect ? 'bold' : 'normal'
+                                        }}>
+                                            {l.toUpperCase()}) {q[`option_${l}`]}{isCorrect ? ' ✓' : ''}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <button className="btn" onClick={() => approvePending(q.id)}
+                                    style={{ flex: 1, backgroundColor: '#28a745', color: 'white', padding: '8px' }}>
+                                    ✅ Approve & Add
+                                </button>
+                                <button className="btn" onClick={() => denyPending(q.id)}
+                                    style={{ flex: 1, backgroundColor: '#dc3545', color: 'white', padding: '8px' }}>
+                                    ❌ Deny
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+
+                    <h3 style={{ margin: '28px 0 12px' }}>
+                        🚩 Reported Questions
+                        <span style={{ marginLeft: '8px', color: '#888', fontWeight: 'normal', fontSize: '14px' }}>({reported.length} reports)</span>
+                    </h3>
+                    {reported.length === 0 ? (
+                        <p style={{ color: '#888' }}>No reported questions.</p>
+                    ) : reported.map(r => (
+                        <div key={r.report_id} style={{ ...cardStyle, borderLeft: '4px solid #dc3545', marginBottom: '14px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
+                                <span style={{ fontSize: '12px', color: '#888' }}>
+                                    Q#{r.id} · reported {new Date(r.reported_at).toLocaleDateString()}
+                                </span>
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                    <Badge color="#6c757d" text={r.category_name} />
+                                    <Badge color={diffColor[r.complexity] || '#6c757d'} text={r.complexity} />
+                                    {r.disabled && <Badge color="#6c757d" text="already disabled" />}
+                                </div>
+                            </div>
+                            {r.reason && (
+                                <p style={{ fontSize: '13px', color: '#dc3545', fontStyle: 'italic', margin: '0 0 8px' }}>
+                                    Reason: "{r.reason}"
+                                </p>
+                            )}
+                            <p style={{ fontWeight: '600', color: 'var(--text-color)', margin: '0 0 10px' }}>{r.text}</p>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', marginBottom: '14px' }}>
+                                {['a','b','c','d'].map(l => {
+                                    const isCorrect = r.correct_answer?.toLowerCase() === l;
+                                    return (
+                                        <div key={l} style={{
+                                            padding: '4px 8px', borderRadius: '4px', fontSize: '13px',
+                                            backgroundColor: isCorrect ? '#d4edda' : 'var(--bg-color)',
+                                            color: isCorrect ? '#155724' : 'var(--text-color)',
+                                            fontWeight: isCorrect ? 'bold' : 'normal'
+                                        }}>
+                                            {l.toUpperCase()}) {r[`option_${l}`]}{isCorrect ? ' ✓' : ''}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <button className="btn" onClick={() => dismissReport(r.report_id)}
+                                    style={{ flex: 1, backgroundColor: '#ffc107', color: '#333', padding: '8px' }}>
+                                    👍 Dismiss
+                                </button>
+                                <button className="btn" onClick={() => disableFromReport(r.id, r.report_id)}
+                                    style={{ flex: 1, backgroundColor: '#dc3545', color: 'white', padding: '8px' }}
+                                    disabled={r.disabled}>
+                                    🚫 Disable Question
+                                </button>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             )}
         </div>
