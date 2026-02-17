@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-ro
 import Game from './Game';
 import Admin from './Admin';
 import Leaderboard from './Leaderboard';
+import ResetPasswordPage from './ResetPasswordPage';
 import { ThemeProvider, useTheme } from './ThemeContext';
 import axios from 'axios';
 
@@ -11,7 +12,7 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 console.log('🔧 API URL configured as:', API_URL);
 
 // ── Header ─────────────────────────────────────────────────────────────────────
-const AppHeader = ({ user, onLogout, urlResetToken = '' }) => {
+const AppHeader = ({ user, onLogout }) => {
     const { isDark, toggleTheme } = useTheme();
     const token = localStorage.getItem('token');
     const [storedUser, setStoredUser] = useState(() => {
@@ -66,7 +67,7 @@ const AppHeader = ({ user, onLogout, urlResetToken = '' }) => {
                     {isDark ? '☀ Light' : '🌙 Dark'}
                 </button>
                 {!token ? (
-                    <LoginModal initialToken={urlResetToken} />
+                    <LoginModal />
                 ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <span style={{ fontSize: '0.9rem' }}>
@@ -90,18 +91,17 @@ const AppHeader = ({ user, onLogout, urlResetToken = '' }) => {
 };
 
 // ── Login / Register / Forgot Password Modal ───────────────────────────────────
-const LoginModal = ({ initialView = 'login', initialToken = '' }) => {
-    const [isOpen, setIsOpen] = useState(!!initialToken); // auto-open if landing from email link
-    // 'login' | 'register' | 'forgot' | 'reset'
-    const [view, setView] = useState(initialToken ? 'reset' : initialView);
-    const [email, setEmail] = useState('');
+const LoginModal = () => {
+    const [isOpen, setIsOpen] = useState(false);
+    // 'login' | 'register' | 'forgot'
+    const [view, setView]         = useState('login');
+    const [email, setEmail]       = useState('');
     const [password, setPassword] = useState('');
-    const [newPassword, setNewPassword] = useState('');
-    const [resetToken, setResetToken] = useState(initialToken);
-    const [error, setError] = useState('');
-    const [success, setSuccess] = useState('');
+    const [error, setError]       = useState('');
+    const [success, setSuccess]   = useState('');
 
     const clearMessages = () => { setError(''); setSuccess(''); };
+    const switchView = (v) => { clearMessages(); setView(v); };
 
     const handleLogin = async (e) => {
         e.preventDefault();
@@ -135,15 +135,19 @@ const LoginModal = ({ initialView = 'login', initialToken = '' }) => {
         try {
             const res = await axios.post(`${API_URL}/auth/request-reset`, { email });
             if (res.data.emailSent) {
-                // Real email was dispatched — just show confirmation, stay on this view
                 setSuccess('📧 Reset link sent! Check your inbox (and spam folder).');
             } else if (res.data.token) {
-                // Dev mode: no SMTP configured, token returned in response
-                setResetToken(res.data.token);
-                setSuccess('⚠️ No email server configured — token pre-filled below (dev mode).');
-                setView('reset');
+                // Dev mode — no SMTP. Direct them to the reset page with the token in the URL.
+                const resetUrl = `/reset-password?reset_token=${res.data.token}`;
+                setSuccess(
+                    <span>
+                        ⚠️ No email server configured.{' '}
+                        <a href={resetUrl} style={{ color: '#155724', fontWeight: 'bold' }}>
+                            Click here to set your password →
+                        </a>
+                    </span>
+                );
             } else {
-                // User not found — show generic message (no enumeration)
                 setSuccess('If that email is registered, a reset link has been sent.');
             }
         } catch (err) {
@@ -151,30 +155,13 @@ const LoginModal = ({ initialView = 'login', initialToken = '' }) => {
         }
     };
 
-    const handleResetPassword = async (e) => {
-        e.preventDefault();
-        clearMessages();
-        if (newPassword.length < 6) { setError('Password must be at least 6 characters.'); return; }
-        try {
-            await axios.post(`${API_URL}/auth/reset-password`, { token: resetToken, newPassword });
-            setSuccess('Password updated! You can now log in.');
-            setResetToken('');
-            setNewPassword('');
-            setTimeout(() => setView('login'), 2000);
-        } catch (err) {
-            setError(err.response?.data?.error || 'Reset failed. Token may have expired.');
-        }
-    };
-
-    const switchView = (v) => { clearMessages(); setView(v); };
-
     if (!isOpen) {
         return (
             <button
                 className="btn"
                 style={{
                     backgroundColor: 'white', color: 'var(--header-bg)',
-                    padding: '8px 16px', fontWeight: 'bold', borderRadius: '5px', cursor: 'pointer'
+                    padding: '8px 16px', fontWeight: 'bold', borderRadius: '5px', cursor: 'pointer',
                 }}
                 onClick={() => setIsOpen(true)}
             >
@@ -185,18 +172,18 @@ const LoginModal = ({ initialView = 'login', initialToken = '' }) => {
 
     const iStyle = {
         width: '100%', padding: '10px', boxSizing: 'border-box',
-        borderRadius: '5px', border: '1px solid #ddd', fontSize: '14px'
+        borderRadius: '5px', border: '1px solid #ddd', fontSize: '14px',
     };
     const linkStyle = {
         color: '#007bff', cursor: 'pointer', textDecoration: 'underline',
-        background: 'none', border: 'none', padding: 0, fontSize: '0.85rem'
+        background: 'none', border: 'none', padding: 0, fontSize: '0.85rem',
     };
 
     return (
         <div style={{
             position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
             backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1000,
-            display: 'flex', justifyContent: 'center', alignItems: 'center'
+            display: 'flex', justifyContent: 'center', alignItems: 'center',
         }}>
             <div className="card" style={{ width: '90%', maxWidth: '420px', padding: '30px', position: 'relative' }}>
                 <button
@@ -257,39 +244,18 @@ const LoginModal = ({ initialView = 'login', initialToken = '' }) => {
                 {/* ── FORGOT PASSWORD ── */}
                 {view === 'forgot' && (
                     <>
-                        <h3 style={{ marginBottom: '8px' }}>Reset Password</h3>
+                        <h3 style={{ marginBottom: '8px' }}>Forgot Password</h3>
                         <p style={{ fontSize: '0.85rem', color: '#666', marginBottom: '16px' }}>
-                            Enter your email to generate a reset token.
+                            Enter your email and we'll send you a reset link. You can also{' '}
+                            <a href="/reset-password" style={{ color: '#007bff' }}>go directly to the reset page</a>
+                            {' '}if you already have a token.
                         </p>
                         <form onSubmit={handleRequestReset} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                             <input type="email" placeholder="Your email" value={email} onChange={e => setEmail(e.target.value)} required style={iStyle} />
-                            <button type="submit" className="btn btn-primary" style={{ padding: '10px' }}>Generate Reset Token</button>
+                            <button type="submit" className="btn btn-primary" style={{ padding: '10px' }}>Send Reset Link</button>
                         </form>
                         <div style={{ marginTop: '14px' }}>
                             <button style={linkStyle} onClick={() => switchView('login')}>← Back to sign in</button>
-                        </div>
-                    </>
-                )}
-
-                {/* ── RESET PASSWORD ── */}
-                {view === 'reset' && (
-                    <>
-                        <h3 style={{ marginBottom: '8px' }}>Set New Password</h3>
-                        <p style={{ fontSize: '0.85rem', color: '#666', marginBottom: '16px' }}>
-                            Paste your reset token and choose a new password.
-                        </p>
-                        <form onSubmit={handleResetPassword} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            <input
-                                type="text" placeholder="Reset token"
-                                value={resetToken} onChange={e => setResetToken(e.target.value)}
-                                required style={{ ...iStyle, fontFamily: 'monospace', fontSize: '12px' }}
-                            />
-                            <input type="password" placeholder="New password (min 6 chars)" value={newPassword} onChange={e => setNewPassword(e.target.value)} required style={iStyle} />
-                            <button type="submit" className="btn btn-primary" style={{ padding: '10px' }}>Reset Password</button>
-                        </form>
-                        <div style={{ marginTop: '14px', display: 'flex', gap: '12px' }}>
-                            <button style={linkStyle} onClick={() => switchView('forgot')}>← Re-send token</button>
-                            <button style={linkStyle} onClick={() => switchView('login')}>Back to sign in</button>
                         </div>
                     </>
                 )}
@@ -305,23 +271,9 @@ function App() {
         return saved ? JSON.parse(saved) : null;
     });
 
-    // If the user lands via a password-reset email link (?reset_token=xxx),
-    // extract the token and clear it from the URL so it isn't bookmarked.
-    const [urlResetToken] = useState(() => {
-        const params = new URLSearchParams(window.location.search);
-        const t = params.get('reset_token') || '';
-        if (t) {
-            // Remove the token from the address bar without a reload
-            const clean = window.location.pathname;
-            window.history.replaceState({}, '', clean);
-        }
-        return t;
-    });
-
     const handleLogout = () => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        // Keep anonymousId so guest tracking persists across sessions
         setUser(null);
         window.location.reload();
     };
@@ -334,27 +286,35 @@ function App() {
     return (
         <ThemeProvider>
             <Router>
-                <div className="container" style={{ maxWidth: '900px', margin: '0 auto', padding: '20px' }}>
-                    <AppHeader user={user} onLogout={handleLogout} urlResetToken={urlResetToken} />
+                <Routes>
+                    {/* Standalone reset page — no app chrome */}
+                    <Route path="/reset-password" element={<ResetPasswordPage />} />
 
-                    <nav style={{ marginBottom: '30px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', display: 'flex', gap: '30px' }}>
-                        <Link to="/" style={{ textDecoration: 'none', color: 'var(--text-color)', fontWeight: 'bold' }}>Play Game</Link>
-                        <Link to="/leaderboard" style={{ textDecoration: 'none', color: 'var(--text-color)', fontWeight: 'bold' }}>Leaderboard</Link>
-                        {user && user.role === 'admin' && (
-                            <Link to="/admin" style={{ textDecoration: 'none', color: 'var(--text-color)', fontWeight: 'bold' }}>Admin Panel</Link>
-                        )}
-                    </nav>
+                    {/* Main app shell */}
+                    <Route path="*" element={
+                        <div className="container" style={{ maxWidth: '900px', margin: '0 auto', padding: '20px' }}>
+                            <AppHeader user={user} onLogout={handleLogout} />
 
-                    <Routes>
-                        <Route path="/" element={<Game />} />
-                        <Route path="/leaderboard" element={<Leaderboard />} />
-                        <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to="/" replace />} />
-                    </Routes>
+                            <nav style={{ marginBottom: '30px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', display: 'flex', gap: '30px' }}>
+                                <Link to="/" style={{ textDecoration: 'none', color: 'var(--text-color)', fontWeight: 'bold' }}>Play Game</Link>
+                                <Link to="/leaderboard" style={{ textDecoration: 'none', color: 'var(--text-color)', fontWeight: 'bold' }}>Leaderboard</Link>
+                                {user && user.role === 'admin' && (
+                                    <Link to="/admin" style={{ textDecoration: 'none', color: 'var(--text-color)', fontWeight: 'bold' }}>Admin Panel</Link>
+                                )}
+                            </nav>
 
-                    <footer style={{ textAlign: 'center', marginTop: '50px', color: '#888', fontSize: '0.9rem' }}>
-                        <p>© 2026 TriviaMaster PWA</p>
-                    </footer>
-                </div>
+                            <Routes>
+                                <Route path="/" element={<Game />} />
+                                <Route path="/leaderboard" element={<Leaderboard />} />
+                                <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to="/" replace />} />
+                            </Routes>
+
+                            <footer style={{ textAlign: 'center', marginTop: '50px', color: '#888', fontSize: '0.9rem' }}>
+                                <p>© 2026 TriviaMaster PWA</p>
+                            </footer>
+                        </div>
+                    } />
+                </Routes>
             </Router>
         </ThemeProvider>
     );

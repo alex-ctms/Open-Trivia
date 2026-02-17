@@ -25,7 +25,7 @@ function buildTransport() {
 async function sendResetEmail(toEmail, resetToken) {
     const appUrl   = (process.env.APP_URL || 'http://localhost:3009').replace(/\/$/, '');
     const fromAddr = process.env.SMTP_FROM || `TriviaMaster <noreply@${process.env.SMTP_HOST || 'trivia.local'}>`;
-    const resetUrl = `${appUrl}/?reset_token=${resetToken}`;
+    const resetUrl = `${appUrl}/reset-password?reset_token=${resetToken}`;
     const expiryHr = '1 hour';
 
     const transport = buildTransport();
