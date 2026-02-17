@@ -114,7 +114,7 @@
 ---
 
 ## 🧭 Recommended Order (Dependencies)
-1. [ ] Epic 1 — Authentication & User Management  
+1. [X] Epic 1 — Authentication & User Management  
 2. [ ] Epic 3 — Categories & Visibility  
 3. [ ] Epic 2 — Leaderboard & Scoring  
 4. [ ] Epic 4 — User-facing Analytics & Personalization  
