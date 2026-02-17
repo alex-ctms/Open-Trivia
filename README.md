@@ -7,11 +7,11 @@
     - [ ] Need to connect to email server to send token to users. (Dev environments only atm)
 - [X] Allows admin to reset user password  
 - [X] Allow admin to see all users  
-- [ ] You should only be able to report/suggest when signed in as a User/Admin  
-- [ ] Record anonymous users on the backend, don't display their stats on the leaderboard
+- [X] You should only be able to report/suggest when signed in as a User/Admin  
+- [X] Record anonymous users on the backend, don't display their stats on the leaderboard
 
 **Notes**
-- [ ] Add `isAnonymous` flag and exclude from public leaderboard queries  
+- [X] Add `isAnonymous` flag and exclude from public leaderboard queries  
 - [X] Role-based access for report/suggest endpoints  
 - [X] Token-based password reset flow (time-limited, one-time use)  
 - [X] Audit log for admin operations (password reset, user views)
