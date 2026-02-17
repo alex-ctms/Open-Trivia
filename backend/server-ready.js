@@ -6,7 +6,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
-// --- CRITICAL: Verify JWT_SECRET exists ---
 if (!process.env.JWT_SECRET) {
     console.error('❌ FATAL: JWT_SECRET environment variable is not set!');
     process.exit(1);
@@ -21,7 +20,6 @@ console.log(`📊 Environment check:
     - JWT_SECRET: ${process.env.JWT_SECRET ? '✓ SET' : '✗ MISSING'}
 `);
 
-// --- Pool ---
 const pool = new Pool({
     user: process.env.PG_USER,
     host: process.env.PG_HOST,
@@ -30,16 +28,9 @@ const pool = new Pool({
     port: process.env.PG_PORT,
 });
 
-// Test database connection
-pool.on('connect', () => {
-    console.log('✅ Database connection established');
-});
+pool.on('connect', () => { console.log('✅ Database connection established'); });
+pool.on('error', (err) => { console.error('❌ Unexpected database error:', err); });
 
-pool.on('error', (err) => {
-    console.error('❌ Unexpected database error:', err);
-});
-
-// --- Helper: Run SQL ---
 async function runQuery(query, params = []) {
     const client = await pool.connect();
     try {
@@ -55,7 +46,6 @@ async function runQuery(query, params = []) {
     }
 }
 
-// --- Database Initialization ---
 async function initDatabase() {
     const client = await pool.connect();
     try {
@@ -68,12 +58,10 @@ async function initDatabase() {
                 role VARCHAR(50) DEFAULT 'player',
                 score INTEGER DEFAULT 0
             );
-            
             CREATE TABLE IF NOT EXISTS categories (
                 id SERIAL PRIMARY KEY,
                 name VARCHAR(100) NOT NULL
             );
-            
             CREATE TABLE IF NOT EXISTS questions (
                 id SERIAL PRIMARY KEY,
                 category_id INT REFERENCES categories(id),
@@ -85,7 +73,6 @@ async function initDatabase() {
                 correct_answer CHAR(1) NOT NULL,
                 complexity VARCHAR(20) NOT NULL
             );
-            
             CREATE TABLE IF NOT EXISTS pending_questions (
                 id SERIAL PRIMARY KEY,
                 user_id INT REFERENCES users(id),
@@ -100,7 +87,6 @@ async function initDatabase() {
                 submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 status VARCHAR(20) DEFAULT 'pending'
             );
-            
             CREATE TABLE IF NOT EXISTS game_sessions (
                 id SERIAL PRIMARY KEY,
                 user_id INT REFERENCES users(id),
@@ -108,7 +94,6 @@ async function initDatabase() {
                 selected_answer CHAR(1),
                 is_correct BOOLEAN
             );
-            
             CREATE TABLE IF NOT EXISTS question_reports (
                 id SERIAL PRIMARY KEY,
                 question_id INT REFERENCES questions(id),
@@ -116,10 +101,8 @@ async function initDatabase() {
             );
         `);
         
-        // Create default admin user with known password
         const adminEmail = process.env.ADMIN_EMAIL || 'admin@trivia.com';
         const adminPassword = process.env.ADMIN_SEED_PASSWORD || 'admin123';
-        
         const userCheck = await client.query('SELECT COUNT(*) FROM users WHERE email = $1', [adminEmail]);
         
         if (parseInt(userCheck.rows[0].count) === 0) {
@@ -128,10 +111,7 @@ async function initDatabase() {
                 'INSERT INTO users (email, password_hash, role, score) VALUES ($1, $2, $3, $4)',
                 [adminEmail, hashedPassword, 'admin', 0]
             );
-            console.log(`✅ Admin user created:
-    Email: ${adminEmail}
-    Password: ${adminPassword}
-    ⚠️  CHANGE THIS PASSWORD AFTER FIRST LOGIN!`);
+            console.log(`✅ Admin user created: ${adminEmail} / ${adminPassword}`);
         } else {
             console.log(`ℹ️  Admin user already exists: ${adminEmail}`);
         }
@@ -145,109 +125,56 @@ async function initDatabase() {
     }
 }
 
-// --- Express App Setup ---
 const app = express();
 
-// CORS configuration - Allow requests from frontend
-app.use(cors({
-    origin: ['http://localhost:3009', 'http://localhost:3000'],
-    credentials: true
-}));
-
+app.use(cors({ origin: ['http://localhost:3009', 'http://localhost:3000'], credentials: true }));
 app.use(express.json());
-
-// Add request logging middleware
 app.use((req, res, next) => {
     console.log(`📨 ${req.method} ${req.path} - Body:`, JSON.stringify(req.body));
     next();
 });
 
-// --- 1. Auth: Register ---
+// --- 1. Register ---
 app.post('/register', async (req, res) => {
-    console.log('🔐 Registration attempt:', req.body.email);
     const { email, password } = req.body;
-    
-    if (!email || !password) {
-        console.log('❌ Registration failed: Missing email or password');
-        return res.status(400).json({ error: 'Email and password required' });
-    }
-
+    if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
     try {
         const hashed = await bcrypt.hash(password, 10);
         let role = 'player';
-        
-        // Check if this is the first user
         const countRes = await pool.query('SELECT COUNT(*) FROM users');
-        if (parseInt(countRes.rows[0].count) === 0) {
-            role = 'admin';
-            console.log('👑 First user - assigning admin role');
-        }
-
+        if (parseInt(countRes.rows[0].count) === 0) role = 'admin';
         const result = await runQuery(
             'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3) RETURNING id, email, role, score',
             [email, hashed, role]
         );
-        
-        const token = jwt.sign(
-            { id: result.rows[0].id, role: result.rows[0].role }, 
-            process.env.JWT_SECRET,
-            { expiresIn: '7d' }
-        );
-        
-        console.log('✅ Registration successful:', email, 'Role:', role);
+        const token = jwt.sign({ id: result.rows[0].id, role: result.rows[0].role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+        console.log('✅ Registration successful:', email);
         res.json({ user: result.rows[0], token });
     } catch (err) {
-        console.error('❌ Registration error:', err.message);
-        if (err.code === '23505') {
-            res.status(400).json({ error: 'User already exists' });
-        } else {
-            res.status(500).json({ error: 'Database error: ' + err.message });
-        }
+        if (err.code === '23505') res.status(400).json({ error: 'User already exists' });
+        else res.status(500).json({ error: 'Database error: ' + err.message });
     }
 });
 
-// --- 2. Auth: Login ---
+// --- 2. Login ---
 app.post('/login', async (req, res) => {
-    console.log('🔐 Login attempt:', req.body.email);
     const { email, password } = req.body;
-    
-    if (!email || !password) {
-        console.log('❌ Login failed: Missing email or password');
-        return res.status(400).json({ error: 'Email and password required' });
-    }
-    
+    if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
     try {
         const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-        
-        if (result.rows.length === 0) {
-            console.log('❌ Login failed: User not found -', email);
-            return res.status(404).json({ error: 'User not found' });
-        }
-
-        console.log('🔍 User found, verifying password...');
+        if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
         const valid = await bcrypt.compare(password, result.rows[0].password_hash);
-        
-        if (!valid) {
-            console.log('❌ Login failed: Wrong password for', email);
-            return res.status(401).json({ error: 'Wrong password' });
-        }
-
-        const token = jwt.sign(
-            { id: result.rows[0].id, role: result.rows[0].role }, 
-            process.env.JWT_SECRET,
-            { expiresIn: '7d' }
-        );
-        
+        if (!valid) return res.status(401).json({ error: 'Wrong password' });
+        const token = jwt.sign({ id: result.rows[0].id, role: result.rows[0].role }, process.env.JWT_SECRET, { expiresIn: '7d' });
         const { password_hash, ...user } = result.rows[0];
-        console.log('✅ Login successful:', email, 'Role:', user.role);
+        console.log('✅ Login successful:', email);
         res.json({ user, token });
     } catch (err) {
-        console.error('❌ Login error:', err.message);
         res.status(500).json({ error: 'Database error: ' + err.message });
     }
 });
 
-// --- 3. Game: Get Random Question ---
+// --- 3. Get Question ---
 app.get('/game/next', async (req, res) => {
     try {
         const countRes = await pool.query('SELECT COUNT(*) FROM questions');
@@ -257,6 +184,7 @@ app.get('/game/next', async (req, res) => {
         const question = qResult.rows[0];
         const catResult = await pool.query('SELECT name FROM categories WHERE id = $1', [question.category_id]);
         
+        // Keep original A/B/C/D chars - shuffle display order but preserve labels
         const options = [
             { char: 'A', text: question.option_a },
             { char: 'B', text: question.option_b },
@@ -271,10 +199,11 @@ app.get('/game/next', async (req, res) => {
 
         res.json({
             id: question.id,
-            category: catResult.rows[0].name,
+            category: catResult.rows[0]?.name || 'General',
             text: question.text,
             options: options,
             complexity: question.complexity
+            // correct_answer intentionally NOT sent to client
         });
     } catch (err) {
         console.error('❌ Error fetching question:', err.message);
@@ -282,153 +211,109 @@ app.get('/game/next', async (req, res) => {
     }
 });
 
-// --- 4. Leaderboard ---
+// --- 4. Submit Answer (NEW!) ---
+app.post('/game/submit', async (req, res) => {
+    const { questionId, selectedAnswer } = req.body;
+    if (!questionId || !selectedAnswer) return res.status(400).json({ error: 'questionId and selectedAnswer required' });
+
+    try {
+        const qResult = await pool.query('SELECT correct_answer FROM questions WHERE id = $1', [questionId]);
+        if (qResult.rows.length === 0) return res.status(404).json({ error: 'Question not found' });
+
+        const correctAnswer = qResult.rows[0].correct_answer.trim().toUpperCase();
+        const isCorrect = selectedAnswer.toUpperCase() === correctAnswer;
+
+        console.log(`🎯 Submit: q=${questionId}, selected=${selectedAnswer}, correct=${correctAnswer}, isCorrect=${isCorrect}`);
+
+        // Award points if user authenticated
+        const authHeader = req.headers['authorization'];
+        if (authHeader) {
+            try {
+                const token = authHeader.split(' ')[1];
+                const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                await pool.query(
+                    'INSERT INTO game_sessions (user_id, question_id, selected_answer, is_correct) VALUES ($1, $2, $3, $4)',
+                    [decoded.id, questionId, selectedAnswer, isCorrect]
+                );
+                if (isCorrect) {
+                    await pool.query('UPDATE users SET score = score + 10 WHERE id = $1', [decoded.id]);
+                    console.log(`✅ +10 points awarded to user ${decoded.id}`);
+                }
+            } catch (e) {
+                console.log('⚠️ Token invalid, score not saved');
+            }
+        }
+
+        res.json({ isCorrect, correctAnswer });
+    } catch (err) {
+        console.error('❌ Error submitting answer:', err.message);
+        res.status(500).json({ error: 'Error submitting answer' });
+    }
+});
+
+// --- 5. Leaderboard ---
 app.get('/leaderboard', async (req, res) => {
     try {
         const result = await pool.query('SELECT id, email, score, role FROM users ORDER BY score DESC LIMIT 50');
         res.json(result.rows);
     } catch (err) {
-        console.error('❌ Error fetching leaderboard:', err.message);
         res.status(500).json({ error: 'Error fetching leaderboard' });
     }
 });
 
-// --- 5. Admin: Add Category ---
-app.post('/categories', async (req, res) => {
-    const { name } = req.body;
-    try {
-        const result = await runQuery('INSERT INTO categories (name) VALUES ($1) RETURNING *', [name]);
-        console.log('✅ Category added:', name);
-        res.json(result.rows[0]);
-    } catch (err) {
-        console.error('❌ Error adding category:', err.message);
-        res.status(500).json({ error: 'Error adding category' });
-    }
-});
-
-// --- GET Categories ---
+// --- 6. Get Categories ---
 app.get('/categories', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM categories ORDER BY id');
         res.json(result.rows);
     } catch (err) {
-        console.error('❌ Error fetching categories:', err.message);
         res.status(500).json({ error: 'Error fetching categories' });
     }
 });
 
-// Also add a seed endpoint to create a default category:
-app.post('/admin/seed-category', async (req, res) => {
+// --- 7. Add Category ---
+app.post('/categories', async (req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Category name required' });
     try {
-        // Check if any categories exist
-        const count = await pool.query('SELECT COUNT(*) FROM categories');
-        if (parseInt(count.rows[0].count) > 0) {
-            return res.json({ message: 'Categories already exist' });
-        }
-        
-        // Create default category
-        await runQuery('INSERT INTO categories (name) VALUES ($1)', ['General Knowledge']);
-        console.log('✅ Default category created');
-        res.json({ message: 'Default category created successfully' });
+        const result = await runQuery('INSERT INTO categories (name) VALUES ($1) RETURNING *', [name]);
+        console.log('✅ Category added:', name);
+        res.json(result.rows[0]);
     } catch (err) {
-        console.error('❌ Error creating default category:', err.message);
-        res.status(500).json({ error: 'Error creating category' });
+        res.status(500).json({ error: 'Error adding category' });
     }
 });
 
-
-// --- 6. Admin: Add Question ---
+// --- 8. Add Question ---
 app.post('/questions', async (req, res) => {
     const { categoryId, text, options, correctAnswer, complexity } = req.body;
+    if (!categoryId || !text || !options || !correctAnswer || !complexity) {
+        return res.status(400).json({ error: 'All fields required' });
+    }
     try {
+        const catCheck = await pool.query('SELECT id FROM categories WHERE id = $1', [categoryId]);
+        if (catCheck.rows.length === 0) {
+            return res.status(400).json({ error: `Category ID ${categoryId} does not exist. Create a category first!` });
+        }
         const result = await runQuery(`
             INSERT INTO questions (category_id, text, option_a, option_b, option_c, option_d, correct_answer, complexity)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
         `, [categoryId, text, options.a, options.b, options.c, options.d, correctAnswer, complexity]);
-        console.log('✅ Question added');
+        console.log('✅ Question added, id:', result.rows[0].id);
         res.json(result.rows[0]);
     } catch (err) {
         console.error('❌ Error adding question:', err.message);
-        res.status(500).json({ error: 'Error adding question' });
+        res.status(500).json({ error: 'Error adding question: ' + err.message });
     }
 });
 
-// --- 3b. Game: Submit Answer (MISSING ROUTE) ---
-app.post('/game/submit', async (req, res) => {
-    const { userId, questionId, selectedAnswer } = req.body;
-    
-    // Basic validation
-    if (!userId || !questionId || !selectedAnswer) {
-        return res.status(400).json({ error: "Missing required fields" });
-    }
-
-    try {
-        // 1. Get the correct answer
-        const qResult = await pool.query('SELECT correct_answer, complexity FROM questions WHERE id = $1', [questionId]);
-        
-        if (qResult.rows.length === 0) {
-            return res.status(404).json({ error: "Question not found" });
-        }
-
-        const question = qResult.rows[0];
-        const isCorrect = (selectedAnswer === question.correct_answer);
-
-        // 2. Record the session
-        await runQuery(
-            'INSERT INTO game_sessions (user_id, question_id, selected_answer, is_correct) VALUES ($1, $2, $3, $4)',
-            [userId, questionId, selectedAnswer, isCorrect]
-        );
-
-        // 3. Update User Score if correct
-        if (isCorrect) {
-            // Define points: Easy=1, Medium=3, Hard=5 (adjust as needed)
-            const points = question.complexity === 'Hard' ? 5 : (question.complexity === 'Medium' ? 3 : 1);
-            await runQuery('UPDATE users SET score = score + $1 WHERE id = $2', [points, userId]);
-        }
-
-        res.json({ 
-            correct: isCorrect, 
-            correctAnswer: question.correct_answer,
-            message: isCorrect ? "Correct!" : "Wrong answer!"
-        });
-
-    } catch (err) {
-        console.error('❌ Error submitting answer:', err.message);
-        res.status(500).json({ error: 'Error processing submission' });
-    }
-});
-
-// --- 8. Requests: Add User Question (MISSING ROUTE) ---
-app.post('/requests/add-question', async (req, res) => {
-    const { userId, category, text, options, correctAnswer, complexity } = req.body;
-    
-    try {
-        await runQuery(`
-            INSERT INTO pending_questions 
-            (user_id, category_name, text, option_a, option_b, option_c, option_d, correct_answer, complexity)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        `, [userId, category, text, options.a, options.b, options.c, options.d, correctAnswer, complexity]);
-        
-        console.log('✅ New question request submitted by user:', userId);
-        res.json({ message: "Question submitted for review!" });
-    } catch (err) {
-        console.error('❌ Error submitting question request:', err.message);
-        res.status(500).json({ error: 'Error submitting request' });
-    }
-});
-
-// Health check endpoint
+// --- 9. Health ---
 app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'ok', 
-        timestamp: new Date().toISOString(),
-        jwtConfigured: !!process.env.JWT_SECRET
-    });
+    res.json({ status: 'ok', timestamp: new Date().toISOString(), jwtConfigured: !!process.env.JWT_SECRET });
 });
 
 const PORT = process.env.PORT || 5000;
 
-// --- 7. Start: Init DB FIRST, THEN server ---
 initDatabase().then(() => {
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`

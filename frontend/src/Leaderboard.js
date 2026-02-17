@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = process.env.REACT_APP_API_URL || '/api';
 
 export default function Leaderboard() {
     const [users, setUsers] = useState([]);
@@ -13,8 +13,8 @@ export default function Leaderboard() {
 
     const fetchLeaderboard = async () => {
         try {
-            const response = await axios.get(`${API_URL}/leaderboard`);
-            setUsers(response.data);
+            const res = await axios.get(`${API_URL}/leaderboard`);
+            setUsers(res.data);
         } catch (err) {
             console.error("Failed to load leaderboard", err);
             setUsers([]); // Ensure state is always set
@@ -46,11 +46,14 @@ export default function Leaderboard() {
                             <td style={{ padding: '10px', fontWeight: 'bold' }}>{index + 1}</td>
                             <td style={{ padding: '10px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center' }}>
-                                    <img 
-                                        src={`https://www.gravatar.com/avatar/${user.email.trim().toLowerCase().hashCode()}?d=mp`} 
-                                        alt="Avatar"
-                                        style={{ width: '35px', height: '35px', borderRadius: '50%', marginRight: '15px', border: '2px solid var(--header-bg)' }}
-                                    />
+                                    <div style={{
+                                        width: '35px', height: '35px', borderRadius: '50%', marginRight: '15px',
+                                        border: '2px solid var(--header-bg)', backgroundColor: 'var(--header-bg)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        color: 'white', fontWeight: 'bold', fontSize: '14px', flexShrink: 0
+                                    }}>
+                                        {user.email[0].toUpperCase()}
+                                    </div>
                                     <div>
                                         <div style={{ fontWeight: 'bold' }}>{user.email.split('@')[0]}</div>
                                         <div style={{ fontSize: '0.8rem', opacity: '0.7' }}>{user.email}</div>
