@@ -1,16 +1,26 @@
 # trivia-app
 
 ## TODO
-- [ ] Fix Leaderboard
-    - [ ] Display Users
-    - [ ] Display scores
-- [ ] Fix Report Button
-- [ ] Fix Response to accurately display correct or wrong
-- [ ] Fix Question Request
-- [ ] Fix Admin Pending Question
-    - [ ] Add Reported questions here
-    - [ ] Questions in Pending Que are not live
-- [ ] Fix Categories adding (admins can't manage categories)
+- [x] Fix Leaderboard
+    - [x] Display Users
+    - [x] Display scores
+- [x] Fix Report Button
+- [x] Fix Response to accurately display correct or wrong
+- [x] Fix Question Request
+- [x] Fix Admin Pending Question
+    - [x] Add Reported questions here
+    - [x] Questions in Pending Que are not live
+- [x] Fix Categories adding (admins can't manage categories)
+- [ ] Allow users to see personal stats and data
+- [ ] Allow users to reset passwords
+- [ ] Improve Category visibility. (dropdown + create a new)
+- [ ] Hide admin scores from leaderboard (from player view)
+- [ ] Allow category specific scores
+- [ ] Allow user to reset their score
+- [ ] Darkmode does not extend edge to edge on edge browser? (darkmode doesn't seem to be properly dark)
+- [ ] Allow admin to reset leaderboard on a schedual (once a day, once a week, once a month, once a year)
+- [ ] Allow users to see scores for the Day, Month, Year
+- [ ] Create an Open API endpoint documentation.
 - [ ] Allow admin to see all users
 - [ ] Allows admin to reset user password
 - [ ] Backup button (internal)
