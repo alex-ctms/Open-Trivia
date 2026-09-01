@@ -12,6 +12,13 @@ frontend:
     port: 3000
   env:
     REACT_APP_API_URL: /api
+    # Leave blank to use same-origin (works when ingress routes /socket.io to
+    # the backend, see ingress.yaml). Set to an absolute URL only if a proxy
+    # in front drops WebSocket upgrades on /socket.io.
+    REACT_APP_SOCKET_URL: ""
+    LEGAL_OPERATOR_NAME: ""
+    LEGAL_CONTACT_EMAIL: ""
+    LEGAL_LAST_UPDATED: "2026-03-25"
 
 branding:
   logo:
@@ -32,12 +39,23 @@ backend:
     PG_DB: trivia_db
     JWT_SECRET: change-me
     APP_URL: http://localhost:3000
+    PUBLIC_APP_URL: http://localhost:3000
+    ADMIN_EMAIL: admin@trivia.com
+    ADMIN_SEED_PASSWORD: change-me-admin-password
     SMTP_HOST: ""
     SMTP_PORT: "587"
     SMTP_SECURE: "false"
     SMTP_USER: ""
     SMTP_PASS: ""
     SMTP_FROM: ""
+    DISCORD_CLIENT_ID: ""
+    DISCORD_CLIENT_SECRET: ""
+    DISCORD_REDIRECT_URI: ""
+    DISCORD_BOT_API_TOKEN: change-me-bot-token
+    # Defaults to the in-cluster discord-bot service when discordBot.enabled;
+    # override if the bot runs elsewhere.
+    DISCORD_BOT_SERVICE_URL: ""
+    DISCORD_BOT_INVITE_URL: ""
 
 postgres:
   enabled: true
@@ -48,7 +66,27 @@ postgres:
     enabled: true
     size: 5Gi
 
+# Optional Discord bot (services/open-trivia-discord). Disabled by default:
+# no image is published for it by this repo's CI, so set image.repository/tag
+# to wherever you build/push it before enabling.
+discordBot:
+  enabled: false
+  image:
+    repository: ghcr.io/gamedirection/open-trivia-discord
+    tag: "latest"
+  service:
+    port: 3000
+  env:
+    DISCORD_TOKEN: ""
+    DISCORD_CLIENT_ID: ""
+    BOT_PUBLIC_APP_URL: http://localhost:3000
+    BOT_SCHEDULE_POLL_MS: "15000"
+    BOT_QUESTION_TIMEOUT_SECONDS: "86400"
+
 ingress:
   enabled: false
   className: ""
   host: ""
+  tls:
+    enabled: false
+    secretName: ""

@@ -27,6 +27,36 @@ spec:
                 configMapKeyRef:
                   name: {{ include "open-trivia.fullname" . }}-config
                   key: REACT_APP_API_URL
+            - name: REACT_APP_SOCKET_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "open-trivia.fullname" . }}-config
+                  key: REACT_APP_SOCKET_URL
+            - name: PUBLIC_APP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "open-trivia.fullname" . }}-config
+                  key: PUBLIC_APP_URL
+            - name: APP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "open-trivia.fullname" . }}-config
+                  key: APP_URL
+            - name: LEGAL_OPERATOR_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "open-trivia.fullname" . }}-config
+                  key: LEGAL_OPERATOR_NAME
+            - name: LEGAL_CONTACT_EMAIL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "open-trivia.fullname" . }}-config
+                  key: LEGAL_CONTACT_EMAIL
+            - name: LEGAL_LAST_UPDATED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "open-trivia.fullname" . }}-config
+                  key: LEGAL_LAST_UPDATED
             {{- if or .Values.branding.logo.url .Values.branding.logo.configMap }}
             - name: REACT_APP_BRAND_LOGO_URL
               value: {{ default "/brand/logo.png" .Values.branding.logo.url | quote }}

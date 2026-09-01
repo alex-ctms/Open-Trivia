@@ -7,17 +7,25 @@ spec:
   {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
   {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName | quote }}
+  {{- end }}
   rules:
     - host: {{ .Values.ingress.host | quote }}
       http:
         paths:
-          - path: /
+          # Socket.IO must be routed before the frontend catch-all so SharePlay
+          # websocket/polling traffic reaches the backend, not the SPA.
+          - path: /socket.io
             pathType: Prefix
             backend:
               service:
-                name: {{ include "open-trivia.fullname" . }}-frontend
+                name: {{ include "open-trivia.fullname" . }}-backend
                 port:
-                  number: {{ .Values.frontend.service.port }}
+                  number: {{ .Values.backend.service.port }}
           - path: /api
             pathType: Prefix
             backend:
@@ -25,4 +33,11 @@ spec:
                 name: {{ include "open-trivia.fullname" . }}-backend
                 port:
                   number: {{ .Values.backend.service.port }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "open-trivia.fullname" . }}-frontend
+                port:
+                  number: {{ .Values.frontend.service.port }}
 {{- end }}

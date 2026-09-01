@@ -1,0 +1,48 @@
+{{- if .Values.discordBot.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "open-trivia.fullname" . }}-discord-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "open-trivia.fullname" . }}-discord-bot
+  template:
+    metadata:
+      labels:
+        app: {{ include "open-trivia.fullname" . }}-discord-bot
+    spec:
+      containers:
+        - name: discord-bot
+          image: {{ .Values.discordBot.image.repository }}:{{ .Values.discordBot.image.tag }}
+          env:
+            - name: DISCORD_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ include "open-trivia.fullname" . }}-secret, key: DISCORD_BOT_TOKEN } }
+            - name: DISCORD_CLIENT_ID
+              value: {{ .Values.discordBot.env.DISCORD_CLIENT_ID | quote }}
+            - name: BOT_API_BASE_URL
+              value: {{ printf "http://%s-backend:%v" (include "open-trivia.fullname" .) .Values.backend.service.port | quote }}
+            - name: BOT_API_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ include "open-trivia.fullname" . }}-secret, key: DISCORD_BOT_API_TOKEN } }
+            - name: BOT_PUBLIC_APP_URL
+              value: {{ .Values.discordBot.env.BOT_PUBLIC_APP_URL | quote }}
+            - name: BOT_STORAGE_PATH
+              value: "/tmp/open-trivia-discord-state.json"
+            - name: BOT_SCHEDULE_POLL_MS
+              value: {{ .Values.discordBot.env.BOT_SCHEDULE_POLL_MS | quote }}
+            - name: BOT_QUESTION_TIMEOUT_SECONDS
+              value: {{ .Values.discordBot.env.BOT_QUESTION_TIMEOUT_SECONDS | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "open-trivia.fullname" . }}-discord-bot
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ include "open-trivia.fullname" . }}-discord-bot
+  ports:
+    - port: {{ .Values.discordBot.service.port }}
+      targetPort: {{ .Values.discordBot.service.port }}
+{{- end }}

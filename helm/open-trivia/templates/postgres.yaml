@@ -22,7 +22,7 @@ spec:
             - name: POSTGRES_USER
               value: {{ .Values.backend.env.PG_USER | quote }}
             - name: POSTGRES_PASSWORD
-              value: {{ .Values.backend.env.PG_PASSWORD | quote }}
+              valueFrom: { secretKeyRef: { name: {{ include "open-trivia.fullname" . }}-secret, key: PG_PASSWORD } }
             - name: POSTGRES_DB
               value: {{ .Values.backend.env.PG_DB | quote }}
           volumeMounts:
