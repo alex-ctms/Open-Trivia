@@ -1778,7 +1778,7 @@ async function applySnapshot(snapshot, mode = 'replace') {
 }
 
 // ── AUTH ───────────────────────────────────────────────────────────────────────
-app.post('/register', async (req, res) => {
+app.post('/api/register', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
     try {
@@ -1802,7 +1802,7 @@ app.post('/register', async (req, res) => {
     }
 });
 
-app.post('/login', async (req, res) => {
+app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
     try {
@@ -1836,7 +1836,7 @@ app.post('/login', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/auth/providers', async (_req, res) => {
+app.get('/api/auth/providers', async (_req, res) => {
     try {
         const settings = await getDiscordSsoSettings();
         res.json({
@@ -1850,7 +1850,7 @@ app.get('/auth/providers', async (_req, res) => {
     }
 });
 
-app.get('/auth/discord/start', async (req, res) => {
+app.get('/api/auth/discord/start', async (req, res) => {
     const settings = await getDiscordSsoSettings();
     if (!settings.active) {
         return res.status(503).json({ error: 'Discord SSO is not configured' });
@@ -1870,7 +1870,7 @@ app.get('/auth/discord/start', async (req, res) => {
     }
 });
 
-app.get('/me/profile/discord/link-url', async (req, res) => {
+app.get('/api/me/profile/discord/link-url', async (req, res) => {
     const user = await requireAuth(req, res);
     if (!user) return;
     const settings = await getDiscordSsoSettings();
@@ -1891,7 +1891,7 @@ app.get('/me/profile/discord/link-url', async (req, res) => {
     }
 });
 
-app.get('/auth/discord/callback', async (req, res) => {
+app.get('/api/auth/discord/callback', async (req, res) => {
     const { code, state, error } = req.query;
     if (error) {
         return redirectDiscordResult(res, { error: `Discord authorization failed: ${error}` });
@@ -1930,7 +1930,7 @@ app.get('/auth/discord/callback', async (req, res) => {
 // Request a password reset. Sends an email with a one-time link.
 // If SMTP is not configured, the token is logged to stdout and also returned
 // in the response body so dev environments work without a mail server.
-app.post('/auth/request-reset', async (req, res) => {
+app.post('/api/auth/request-reset', async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email required' });
     try {
@@ -1970,7 +1970,7 @@ app.post('/auth/request-reset', async (req, res) => {
 });
 
 // Reset password using a token
-app.post('/auth/reset-password', async (req, res) => {
+app.post('/api/auth/reset-password', async (req, res) => {
     const { token, newPassword } = req.body;
     if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password required' });
     if (newPassword.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -1991,7 +1991,7 @@ app.post('/auth/reset-password', async (req, res) => {
 });
 
 // ── CATEGORIES ─────────────────────────────────────────────────────────────────
-app.get('/categories', async (_req, res) => {
+app.get('/api/categories', async (_req, res) => {
     const includeDisabled = ['1', 'true'].includes(String(_req.query.includeDisabled || '').trim().toLowerCase());
     const viewer = getTokenUser(_req);
     const canIncludeDisabled = includeDisabled && viewer?.role === 'admin';
@@ -2006,7 +2006,7 @@ app.get('/categories', async (_req, res) => {
     catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/categories', async (req, res) => {
+app.post('/api/categories', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const { name } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'Name required' });
@@ -2016,7 +2016,7 @@ app.post('/categories', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/categories/:id', async (req, res) => {
+app.delete('/api/categories/:id', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
         const catRow = await pool.query('SELECT id, name FROM categories WHERE id=$1', [req.params.id]);
@@ -2032,7 +2032,7 @@ app.delete('/categories/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.patch('/categories/:id', async (req, res) => {
+app.patch('/api/categories/:id', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const { disabled, name } = req.body || {};
     const updates = [];
@@ -2057,7 +2057,7 @@ app.patch('/categories/:id', async (req, res) => {
 });
 
 // ── CATEGORY MERGE ─────────────────────────────────────────────────────────────
-app.post('/admin/categories/merge', async (req, res) => {
+app.post('/api/admin/categories/merge', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const { sourceCategoryId, targetCategoryId } = req.body || {};
     if (!sourceCategoryId || !targetCategoryId)
@@ -2097,7 +2097,7 @@ app.post('/admin/categories/merge', async (req, res) => {
 });
 
 // ── QUESTIONS ──────────────────────────────────────────────────────────────────
-app.get('/categories/:catId/questions', async (req, res) => {
+app.get('/api/categories/:catId/questions', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
         const r = await pool.query(
@@ -2115,7 +2115,7 @@ app.get('/categories/:catId/questions', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/questions', async (req, res) => {
+app.post('/api/questions', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const { categoryId, text, options, correctAnswer, complexity, imageUrl } = req.body;
     if (!categoryId || !text || !options || !correctAnswer || !complexity)
@@ -2141,7 +2141,7 @@ app.post('/questions', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/questions/:id', async (req, res) => {
+app.put('/api/questions/:id', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const { categoryId, text, options, correctAnswer, complexity, imageUrl } = req.body;
     try {
@@ -2163,7 +2163,7 @@ app.put('/questions/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.patch('/questions/:id', async (req, res) => {
+app.patch('/api/questions/:id', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const { disabled } = req.body;
     try {
@@ -2172,7 +2172,7 @@ app.patch('/questions/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/questions/:id', async (req, res) => {
+app.delete('/api/questions/:id', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
         await runQuery('DELETE FROM questions WHERE id=$1', [req.params.id]);
@@ -2181,7 +2181,7 @@ app.delete('/questions/:id', async (req, res) => {
 });
 
 // ── GAME ───────────────────────────────────────────────────────────────────────
-app.get('/game/settings', async (_req, res) => {
+app.get('/api/game/settings', async (_req, res) => {
     try {
         const settings = await getRateLimitSettings();
         res.json({
@@ -2191,7 +2191,7 @@ app.get('/game/settings', async (_req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/game/opentdb/next-batch', async (req, res) => {
+app.get('/api/game/opentdb/next-batch', async (req, res) => {
     const amountParsed = parseInt(req.query.amount, 10);
     const amount = Number.isFinite(amountParsed) ? clamp(amountParsed, 1, 50) : 10;
     try {
@@ -2239,7 +2239,7 @@ app.get('/game/opentdb/next-batch', async (req, res) => {
     }
 });
 
-app.post('/game/skip', async (req, res) => {
+app.post('/api/game/skip', async (req, res) => {
     const authUser = getTokenUser(req);
     const { anonymousId } = req.body || {};
     try {
@@ -2297,7 +2297,7 @@ app.post('/game/skip', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/game/opentdb/submit', async (req, res) => {
+app.post('/api/game/opentdb/submit', async (req, res) => {
     const authUser = getTokenUser(req);
     const { selectedAnswer, correctAnswer, anonymousId, elapsedMs, complexity } = req.body || {};
     if (!selectedAnswer || !correctAnswer) {
@@ -2332,7 +2332,7 @@ app.post('/game/opentdb/submit', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/game/next', async (req, res) => {
+app.get('/api/game/next', async (req, res) => {
     const catParsed = req.query.categoryId ? parseInt(req.query.categoryId, 10) : NaN;
     const catId = Number.isNaN(catParsed) ? null : catParsed;
     const includeIds = catId ? [catId] : parseIdList(req.query.includeCategoryIds || req.query.includeCategories);
@@ -2377,7 +2377,7 @@ app.get('/game/next', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/game/submit', async (req, res) => {
+app.post('/api/game/submit', async (req, res) => {
     const authUser = getTokenUser(req);
     const { questionId, selectedAnswer, anonymousId, elapsedMs } = req.body;
     if (!questionId || !selectedAnswer) return res.status(400).json({ error: 'questionId and selectedAnswer required' });
@@ -2422,7 +2422,7 @@ app.post('/game/submit', async (req, res) => {
 });
 
 // Create an anonymous tracking record for a guest player
-app.post('/game/anonymous-session', async (req, res) => {
+app.post('/api/game/anonymous-session', async (req, res) => {
     try {
         const anonEmail = `anon_${crypto.randomBytes(8).toString('hex')}@anonymous.local`;
         const hash = await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10);
@@ -2435,7 +2435,7 @@ app.post('/game/anonymous-session', async (req, res) => {
 });
 
 // Report a question - rate-limited for guests and users
-app.post('/game/report', async (req, res) => {
+app.post('/api/game/report', async (req, res) => {
     const u = getTokenUser(req);
     const { questionId, reason } = req.body;
     if (!questionId) return res.status(400).json({ error: 'questionId required' });
@@ -2475,7 +2475,7 @@ app.post('/game/report', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/game/report-player', async (req, res) => {
+app.post('/api/game/report-player', async (req, res) => {
     const u = getTokenUser(req);
     const { reportedUserId, roomCode, reason, note } = req.body;
     if (!reportedUserId || !reason) return res.status(400).json({ error: 'reportedUserId and reason required' });
@@ -2494,7 +2494,7 @@ app.post('/game/report-player', async (req, res) => {
 });
 
 // ── LEADERBOARD - excludes anonymous users and admins ──────────────────────────
-app.get('/leaderboard', async (req, res) => {
+app.get('/api/leaderboard', async (req, res) => {
     const { categoryId, timeframe, includeAnonymous } = req.query;
     const catParsed = categoryId ? parseInt(categoryId, 10) : NaN;
     const catId = Number.isNaN(catParsed) ? null : catParsed;
@@ -2585,7 +2585,7 @@ app.get('/leaderboard', async (req, res) => {
 });
 
 // ── DISCORD BOT INTEGRATION ──────────────────────────────────────────────────
-app.get('/bot/config', async (req, res) => {
+app.get('/api/bot/config', async (req, res) => {
     const bot = await requireBot(req, res);
     if (!bot) return;
     try {
@@ -2598,7 +2598,7 @@ app.get('/bot/config', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/bot/categories', async (req, res) => {
+app.get('/api/bot/categories', async (req, res) => {
     const bot = await requireBot(req, res);
     if (!bot) return;
     try {
@@ -2607,7 +2607,7 @@ app.get('/bot/categories', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/bot/pending-questions', async (req, res) => {
+app.post('/api/bot/pending-questions', async (req, res) => {
     const bot = await requireBot(req, res);
     if (!bot) return;
     const body = req.body || {};
@@ -2642,7 +2642,7 @@ app.post('/bot/pending-questions', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/bot/schedules', async (req, res) => {
+app.get('/api/bot/schedules', async (req, res) => {
     const bot = await requireBot(req, res);
     if (!bot) return;
     try {
@@ -2669,7 +2669,7 @@ app.get('/bot/schedules', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/bot/schedules', async (req, res) => {
+app.post('/api/bot/schedules', async (req, res) => {
     const bot = await requireBot(req, res);
     if (!bot) return;
     const body = req.body || {};
@@ -2745,7 +2745,7 @@ app.post('/bot/schedules', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.patch('/bot/schedules/:id', async (req, res) => {
+app.patch('/api/bot/schedules/:id', async (req, res) => {
     const bot = await requireBot(req, res);
     if (!bot) return;
     const id = parseInt(req.params.id, 10);
@@ -2841,7 +2841,7 @@ app.patch('/bot/schedules/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/bot/schedules/:id', async (req, res) => {
+app.delete('/api/bot/schedules/:id', async (req, res) => {
     const bot = await requireBot(req, res);
     if (!bot) return;
     const id = parseInt(req.params.id, 10);
@@ -2856,7 +2856,7 @@ app.delete('/bot/schedules/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/bot/schedules/:id/mark-run', async (req, res) => {
+app.post('/api/bot/schedules/:id/mark-run', async (req, res) => {
     const bot = await requireBot(req, res);
     if (!bot) return;
     const id = parseInt(req.params.id, 10);
@@ -2897,7 +2897,7 @@ app.post('/bot/schedules/:id/mark-run', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/bot/schedules/comment-event', async (req, res) => {
+app.post('/api/bot/schedules/comment-event', async (req, res) => {
     const bot = await requireBot(req, res);
     if (!bot) return;
     const body = req.body || {};
@@ -2948,7 +2948,7 @@ app.post('/bot/schedules/comment-event', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/bot/trivia/questions', async (req, res) => {
+app.post('/api/bot/trivia/questions', async (req, res) => {
     const bot = await requireBot(req, res);
     if (!bot) return;
     const body = req.body || {};
@@ -3011,7 +3011,7 @@ app.post('/bot/trivia/questions', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/bot/trivia/sessions/open', async (req, res) => {
+app.get('/api/bot/trivia/sessions/open', async (req, res) => {
     const bot = await requireBot(req, res);
     if (!bot) return;
     try {
@@ -3025,7 +3025,7 @@ app.get('/bot/trivia/sessions/open', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/bot/trivia/sessions/:id/answer', async (req, res) => {
+app.post('/api/bot/trivia/sessions/:id/answer', async (req, res) => {
     const bot = await requireBot(req, res);
     if (!bot) return;
     const id = parseInt(req.params.id, 10);
@@ -3111,7 +3111,7 @@ app.post('/bot/trivia/sessions/:id/answer', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/bot/trivia/sessions/:id/close', async (req, res) => {
+app.post('/api/bot/trivia/sessions/:id/close', async (req, res) => {
     const bot = await requireBot(req, res);
     if (!bot) return;
     const id = parseInt(req.params.id, 10);
@@ -3157,7 +3157,7 @@ app.post('/bot/trivia/sessions/:id/close', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/bot/leaderboard', async (req, res) => {
+app.get('/api/bot/leaderboard', async (req, res) => {
     const bot = await requireBot(req, res);
     if (!bot) return;
     const guildId = String(req.query.guildId || '').trim();
@@ -3218,7 +3218,7 @@ app.get('/bot/leaderboard', async (req, res) => {
 });
 
 // ── USER: RESET SCORE ─────────────────────────────────────────────────────────-
-app.post('/me/reset-score', async (req, res) => {
+app.post('/api/me/reset-score', async (req, res) => {
     const u = await requireAuth(req, res);
     if (!u) return;
     const { categoryId } = req.body || {};
@@ -3235,7 +3235,7 @@ app.post('/me/reset-score', async (req, res) => {
 });
 
 // ── USER: STATS DASHBOARD ─────────────────────────────────────────────────────
-app.get('/me/stats', async (req, res) => {
+app.get('/api/me/stats', async (req, res) => {
     const u = await requireAuth(req, res);
     if (!u) return;
     const { timeframe } = req.query;
@@ -3341,7 +3341,7 @@ function normalizeCustomGroupRow(row) {
     };
 }
 
-app.get('/me/category-groups', async (req, res) => {
+app.get('/api/me/category-groups', async (req, res) => {
     const u = await requireAuth(req, res);
     if (!u) return;
     try {
@@ -3364,7 +3364,7 @@ app.get('/me/category-groups', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/me/category-groups', async (req, res) => {
+app.post('/api/me/category-groups', async (req, res) => {
     const u = await requireAuth(req, res);
     if (!u) return;
     const name = String(req.body?.name || '').trim().slice(0, 100);
@@ -3383,7 +3383,7 @@ app.post('/me/category-groups', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/me/category-groups/:id', async (req, res) => {
+app.delete('/api/me/category-groups/:id', async (req, res) => {
     const u = await requireAuth(req, res);
     if (!u) return;
     try {
@@ -3397,7 +3397,7 @@ app.delete('/me/category-groups/:id', async (req, res) => {
 });
 
 // ── USER: PROFILE / PRIVACY ───────────────────────────────────────────────────
-app.get('/me/profile', async (req, res) => {
+app.get('/api/me/profile', async (req, res) => {
     const u = await requireAuth(req, res);
     if (!u) return;
     try {
@@ -3430,7 +3430,7 @@ app.get('/me/profile', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/me/profile', async (req, res) => {
+app.post('/api/me/profile', async (req, res) => {
     const u = await requireAuth(req, res);
     if (!u) return;
     const { displayName, showEmail, animationsEnabled } = req.body || {};
@@ -3480,7 +3480,7 @@ app.post('/me/profile', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/me/profile/add-email', async (req, res) => {
+app.post('/api/me/profile/add-email', async (req, res) => {
     const u = await requireAuth(req, res);
     if (!u) return;
     const { email, password } = req.body || {};
@@ -3513,7 +3513,7 @@ app.post('/me/profile/add-email', async (req, res) => {
 });
 
 // ── PENDING QUESTIONS - rate-limited for guests and users ─────────────────────
-app.post('/pending-questions', async (req, res) => {
+app.post('/api/pending-questions', async (req, res) => {
     const u = getTokenUser(req);
     const { categoryName, text, options, correctAnswer, complexity, imageUrl } = req.body;
     if (!categoryName || !text || !options || !correctAnswer || !complexity)
@@ -3571,7 +3571,7 @@ app.post('/pending-questions', async (req, res) => {
 });
 
 // ── ADMIN: USERS ───────────────────────────────────────────────────────────────
-app.get('/admin/users', async (req, res) => {
+app.get('/api/admin/users', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -3591,7 +3591,7 @@ app.get('/admin/users', async (req, res) => {
 });
 
 // ── ADMIN: LEADERBOARD RESET & SCHEDULER ───────────────────────────────────────
-app.post('/admin/leaderboard/reset', async (req, res) => {
+app.post('/api/admin/leaderboard/reset', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { categoryId, reason } = req.body || {};
@@ -3608,7 +3608,7 @@ app.post('/admin/leaderboard/reset', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/admin/leaderboard/schedule', async (req, res) => {
+app.get('/api/admin/leaderboard/schedule', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -3617,7 +3617,7 @@ app.get('/admin/leaderboard/schedule', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/admin/leaderboard/schedule', async (req, res) => {
+app.post('/api/admin/leaderboard/schedule', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { period, enabled } = req.body || {};
@@ -3639,7 +3639,7 @@ app.post('/admin/leaderboard/schedule', async (req, res) => {
 });
 
 // ── ADMIN: PRIVACY SETTINGS ───────────────────────────────────────────────────
-app.get('/admin/privacy-settings', async (req, res) => {
+app.get('/api/admin/privacy-settings', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -3648,7 +3648,7 @@ app.get('/admin/privacy-settings', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/admin/privacy-settings', async (req, res) => {
+app.post('/api/admin/privacy-settings', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { hide_emails_globally, hide_emails_by_default } = req.body || {};
@@ -3673,7 +3673,7 @@ app.post('/admin/privacy-settings', async (req, res) => {
 });
 
 // ── ADMIN: RATE LIMIT SETTINGS ────────────────────────────────────────────────
-app.get('/admin/rate-limit-settings', async (req, res) => {
+app.get('/api/admin/rate-limit-settings', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -3682,7 +3682,7 @@ app.get('/admin/rate-limit-settings', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/admin/rate-limit-settings', async (req, res) => {
+app.post('/api/admin/rate-limit-settings', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const {
@@ -3740,7 +3740,7 @@ app.post('/admin/rate-limit-settings', async (req, res) => {
 });
 
 // ── ADMIN: IMAGE SETTINGS ─────────────────────────────────────────────────────
-app.get('/admin/image-settings', async (req, res) => {
+app.get('/api/admin/image-settings', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -3749,7 +3749,7 @@ app.get('/admin/image-settings', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/admin/image-settings', async (req, res) => {
+app.post('/api/admin/image-settings', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { max_image_kb } = req.body || {};
@@ -3770,7 +3770,7 @@ app.post('/admin/image-settings', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/admin/discord-sso-settings', async (req, res) => {
+app.get('/api/admin/discord-sso-settings', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -3779,7 +3779,7 @@ app.get('/admin/discord-sso-settings', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/admin/discord-sso-settings', async (req, res) => {
+app.post('/api/admin/discord-sso-settings', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const body = req.body || {};
@@ -3804,7 +3804,7 @@ app.post('/admin/discord-sso-settings', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/admin/discord-bot-settings', async (req, res) => {
+app.get('/api/admin/discord-bot-settings', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -3813,7 +3813,7 @@ app.get('/admin/discord-bot-settings', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/admin/discord-bot-settings', async (req, res) => {
+app.post('/api/admin/discord-bot-settings', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const body = req.body || {};
@@ -3839,7 +3839,7 @@ app.post('/admin/discord-bot-settings', async (req, res) => {
 });
 
 // ── ADMIN: IMAGE UPLOADS ──────────────────────────────────────────────────────
-app.post('/admin/images/upload', async (req, res) => {
+app.post('/api/admin/images/upload', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const upload = multer({ storage: multer.memoryStorage() }).single('image');
@@ -3867,7 +3867,7 @@ app.post('/admin/images/upload', async (req, res) => {
 });
 
 // ── ADMIN: CATEGORY PACK EXPORT/IMPORT ───────────────────────────────────────
-app.post('/admin/categories/export-zip', async (req, res) => {
+app.post('/api/admin/categories/export-zip', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { categoryIds } = req.body || {};
@@ -3943,7 +3943,7 @@ app.post('/admin/categories/export-zip', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/admin/categories/template-zip', async (req, res) => {
+app.get('/api/admin/categories/template-zip', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -4135,7 +4135,7 @@ function looksLikeCsvImport(url, contentType = '') {
     return /\.csv($|\?)/i.test(url) || /text\/csv|application\/csv|spreadsheet/i.test(contentType);
 }
 
-app.post('/admin/categories/import-zip', async (req, res) => {
+app.post('/api/admin/categories/import-zip', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const upload = multer({ storage: multer.memoryStorage() }).single('file');
@@ -4152,7 +4152,7 @@ app.post('/admin/categories/import-zip', async (req, res) => {
     });
 });
 
-app.post('/admin/categories/import-github', async (req, res) => {
+app.post('/api/admin/categories/import-github', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { repoUrl } = req.body || {};
@@ -4179,7 +4179,7 @@ app.post('/admin/categories/import-github', async (req, res) => {
 });
 
 // ── ADMIN: SCORING SETTINGS ───────────────────────────────────────────────────
-app.get('/admin/scoring-settings', async (req, res) => {
+app.get('/api/admin/scoring-settings', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -4188,7 +4188,7 @@ app.get('/admin/scoring-settings', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/admin/scoring-settings', async (req, res) => {
+app.post('/api/admin/scoring-settings', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const {
@@ -4231,7 +4231,7 @@ app.post('/admin/scoring-settings', async (req, res) => {
 });
 
 // ── ADMIN: DATA MANAGEMENT ────────────────────────────────────────────────────
-app.post('/admin/backup', async (req, res) => {
+app.post('/api/admin/backup', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { note } = req.body || {};
@@ -4246,7 +4246,7 @@ app.post('/admin/backup', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/admin/backup', async (req, res) => {
+app.get('/api/admin/backup', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -4255,7 +4255,7 @@ app.get('/admin/backup', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/admin/backup/:id', async (req, res) => {
+app.get('/api/admin/backup/:id', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -4266,7 +4266,7 @@ app.get('/admin/backup/:id', async (req, res) => {
 });
 
 // ── ADMIN: QUESTIONS CSV ──────────────────────────────────────────────────────
-app.get('/admin/questions/csv', async (req, res) => {
+app.get('/api/admin/questions/csv', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -4292,7 +4292,7 @@ app.get('/admin/questions/csv', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/admin/questions/template', async (req, res) => {
+app.get('/api/admin/questions/template', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const templatePath = path.join(__dirname, 'exports', 'questions_template.csv');
@@ -4306,7 +4306,7 @@ app.get('/admin/questions/template', async (req, res) => {
     }
 });
 
-app.post('/admin/questions/import-csv', async (req, res) => {
+app.post('/api/admin/questions/import-csv', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { csv } = req.body || {};
@@ -4382,7 +4382,7 @@ app.post('/admin/questions/import-csv', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/admin/export', async (req, res) => {
+app.get('/api/admin/export', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -4391,7 +4391,7 @@ app.get('/admin/export', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/admin/import', async (req, res) => {
+app.post('/api/admin/import', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { data, mode } = req.body || {};
@@ -4404,7 +4404,7 @@ app.post('/admin/import', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/admin/backup/restore-user', async (req, res) => {
+app.post('/api/admin/backup/restore-user', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { userId } = req.body || {};
@@ -4468,7 +4468,7 @@ app.post('/admin/backup/restore-user', async (req, res) => {
 });
 
 // Admin resets a user's password directly
-app.post('/admin/users/:id/reset-password', async (req, res) => {
+app.post('/api/admin/users/:id/reset-password', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { newPassword } = req.body;
@@ -4485,7 +4485,7 @@ app.post('/admin/users/:id/reset-password', async (req, res) => {
 });
 
 // Admin changes a user's role
-app.patch('/admin/users/:id/role', async (req, res) => {
+app.patch('/api/admin/users/:id/role', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { role } = req.body;
@@ -4501,7 +4501,7 @@ app.patch('/admin/users/:id/role', async (req, res) => {
 });
 
 // Admin blocks/unblocks a user
-app.post('/admin/users/:id/block', async (req, res) => {
+app.post('/api/admin/users/:id/block', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const userId = parseInt(req.params.id, 10);
@@ -4524,7 +4524,7 @@ app.post('/admin/users/:id/block', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/admin/users/:id/unblock', async (req, res) => {
+app.post('/api/admin/users/:id/unblock', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const userId = parseInt(req.params.id, 10);
@@ -4536,7 +4536,7 @@ app.post('/admin/users/:id/unblock', async (req, res) => {
 });
 
 // ── ADMIN: REVIEW QUEUE ────────────────────────────────────────────────────────
-app.get('/admin/queue', async (req, res) => {
+app.get('/api/admin/queue', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
         const pendingRes = await pool.query(`SELECT * FROM pending_questions WHERE status='pending' ORDER BY submitted_at DESC`);
@@ -4584,7 +4584,7 @@ app.get('/admin/queue', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/admin/approve/:id', async (req, res) => {
+app.post('/api/admin/approve/:id', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
         const pq = (await pool.query('SELECT * FROM pending_questions WHERE id=$1', [req.params.id])).rows[0];
@@ -4608,7 +4608,7 @@ app.post('/admin/approve/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/admin/deny/:id', async (req, res) => {
+app.post('/api/admin/deny/:id', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
         await runQuery(`UPDATE pending_questions SET status='denied' WHERE id=$1`, [req.params.id]);
@@ -4617,7 +4617,7 @@ app.post('/admin/deny/:id', async (req, res) => {
 });
 
 // ── ADMIN: REPORTED QUESTIONS ──────────────────────────────────────────────────
-app.get('/admin/reported', async (req, res) => {
+app.get('/api/admin/reported', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
         const r = await pool.query(`
@@ -4634,7 +4634,7 @@ app.get('/admin/reported', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/admin/reports/:id', async (req, res) => {
+app.delete('/api/admin/reports/:id', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
         await runQuery('DELETE FROM question_reports WHERE id=$1', [req.params.id]);
@@ -4643,7 +4643,7 @@ app.delete('/admin/reports/:id', async (req, res) => {
 });
 
 // ── ADMIN: AUDIT LOG ───────────────────────────────────────────────────────────
-app.get('/admin/audit-log', async (req, res) => {
+app.get('/api/admin/audit-log', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -4660,7 +4660,7 @@ app.get('/admin/audit-log', async (req, res) => {
 });
 
 // ── ADMIN: SHAREPLAY KICK/VOTE MANAGEMENT ─────────────────────────────────────
-app.post('/admin/users/:id/clear-leaderboard', async (req, res) => {
+app.post('/api/admin/users/:id/clear-leaderboard', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { id } = req.params;
@@ -4675,7 +4675,7 @@ app.post('/admin/users/:id/clear-leaderboard', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/admin/users/:id', async (req, res) => {
+app.delete('/api/admin/users/:id', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { id } = req.params;
@@ -4690,7 +4690,7 @@ app.delete('/admin/users/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/admin/shareplay/bans', async (req, res) => {
+app.get('/api/admin/shareplay/bans', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -4706,7 +4706,7 @@ app.get('/admin/shareplay/bans', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/admin/shareplay/unblock/:userId', async (req, res) => {
+app.post('/api/admin/shareplay/unblock/:userId', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { userId } = req.params;
@@ -4719,7 +4719,7 @@ app.post('/admin/shareplay/unblock/:userId', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/admin/shareplay/block/:userId', async (req, res) => {
+app.post('/api/admin/shareplay/block/:userId', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { userId } = req.params;
@@ -4736,7 +4736,7 @@ app.post('/admin/shareplay/block/:userId', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/admin/shareplay/kick-warnings', async (req, res) => {
+app.get('/api/admin/shareplay/kick-warnings', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -4751,7 +4751,7 @@ app.get('/admin/shareplay/kick-warnings', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/admin/shareplay/appeals', async (req, res) => {
+app.get('/api/admin/shareplay/appeals', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     try {
@@ -4765,7 +4765,7 @@ app.get('/admin/shareplay/appeals', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/admin/shareplay/appeals/:id/resolve', async (req, res) => {
+app.post('/api/admin/shareplay/appeals/:id/resolve', async (req, res) => {
     const admin = requireAdmin(req, res);
     if (!admin) return;
     const { id } = req.params;
@@ -4787,7 +4787,7 @@ app.post('/admin/shareplay/appeals/:id/resolve', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/me/shareplay/appeal', async (req, res) => {
+app.post('/api/me/shareplay/appeal', async (req, res) => {
     const u = await requireAuth(req, res);
     if (!u) return;
     const { message } = req.body || {};
@@ -4800,7 +4800,7 @@ app.post('/me/shareplay/appeal', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/me/shareplay/status', async (req, res) => {
+app.get('/api/me/shareplay/status', async (req, res) => {
     const u = await requireAuth(req, res);
     if (!u) return;
     try {
