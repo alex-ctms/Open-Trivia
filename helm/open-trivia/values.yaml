@@ -90,3 +90,4 @@ ingress:
   tls:
     enabled: false
     secretName: ""
+    clusterIssuer: "letsencrypt-dns01"
