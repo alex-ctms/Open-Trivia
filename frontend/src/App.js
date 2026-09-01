@@ -154,15 +154,20 @@ const LoginModal = () => {
     const [error, setError]       = useState('');
     const [success, setSuccess]   = useState('');
     const [discordEnabled, setDiscordEnabled] = useState(false);
+    const [microsoftEnabled, setMicrosoftEnabled] = useState(false);
+    const [passwordLoginDisabled, setPasswordLoginDisabled] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
         axios.get(`${API_URL}/auth/providers`)
             .then((res) => {
-                if (!cancelled) setDiscordEnabled(!!res.data?.discord?.enabled);
+                if (cancelled) return;
+                setDiscordEnabled(!!res.data?.discord?.enabled);
+                setMicrosoftEnabled(!!res.data?.microsoft?.enabled);
+                setPasswordLoginDisabled(!!res.data?.passwordLoginDisabled);
             })
             .catch(() => {
-                if (!cancelled) setDiscordEnabled(false);
+                if (!cancelled) { setDiscordEnabled(false); setMicrosoftEnabled(false); setPasswordLoginDisabled(false); }
             });
         return () => { cancelled = true; };
     }, []);
@@ -227,6 +232,11 @@ const LoginModal = () => {
         window.location.assign(`${API_URL}/auth/discord/start?target=${encodeURIComponent(target)}`);
     };
 
+    const handleMicrosoftLogin = () => {
+        const target = window.location.pathname || '/';
+        window.location.assign(`${API_URL}/auth/microsoft/start?target=${encodeURIComponent(target)}`);
+    };
+
     if (!isOpen) {
         return (
             <button
@@ -280,32 +290,62 @@ const LoginModal = () => {
                 {view === 'login' && (
                     <>
                         <h3 style={{ marginBottom: '16px' }}>Sign In</h3>
-                        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required style={iStyle} />
-                            <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required style={iStyle} />
-                            <button type="submit" className="btn btn-primary" style={{ padding: '10px' }}>Sign In</button>
-                        </form>
-                        {discordEnabled && (
+                        {passwordLoginDisabled ? (
                             <>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '14px 0 4px' }}>
-                                    <div style={{ flex: 1, height: '1px', backgroundColor: '#ddd' }} />
-                                    <span style={{ fontSize: '0.8rem', color: '#666', textTransform: 'uppercase', letterSpacing: '0.08em' }}>or</span>
-                                    <div style={{ flex: 1, height: '1px', backgroundColor: '#ddd' }} />
-                                </div>
+                                <p style={{ fontSize: '0.85rem', color: '#666', marginBottom: '14px' }}>
+                                    Sign-in is managed through Microsoft for this site.
+                                </p>
                                 <button
                                     type="button"
                                     className="btn"
-                                    onClick={handleDiscordLogin}
-                                    style={{ padding: '10px', backgroundColor: '#5865F2', color: 'white' }}
+                                    onClick={handleMicrosoftLogin}
+                                    style={{ padding: '10px', backgroundColor: '#2F2F2F', color: 'white' }}
                                 >
-                                    Continue with Discord
+                                    Continue with Microsoft
                                 </button>
                             </>
+                        ) : (
+                            <>
+                                <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                    <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required style={iStyle} />
+                                    <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required style={iStyle} />
+                                    <button type="submit" className="btn btn-primary" style={{ padding: '10px' }}>Sign In</button>
+                                </form>
+                                {(discordEnabled || microsoftEnabled) && (
+                                    <>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '14px 0 4px' }}>
+                                            <div style={{ flex: 1, height: '1px', backgroundColor: '#ddd' }} />
+                                            <span style={{ fontSize: '0.8rem', color: '#666', textTransform: 'uppercase', letterSpacing: '0.08em' }}>or</span>
+                                            <div style={{ flex: 1, height: '1px', backgroundColor: '#ddd' }} />
+                                        </div>
+                                        {discordEnabled && (
+                                            <button
+                                                type="button"
+                                                className="btn"
+                                                onClick={handleDiscordLogin}
+                                                style={{ padding: '10px', backgroundColor: '#5865F2', color: 'white', marginBottom: microsoftEnabled ? '8px' : 0 }}
+                                            >
+                                                Continue with Discord
+                                            </button>
+                                        )}
+                                        {microsoftEnabled && (
+                                            <button
+                                                type="button"
+                                                className="btn"
+                                                onClick={handleMicrosoftLogin}
+                                                style={{ padding: '10px', backgroundColor: '#2F2F2F', color: 'white' }}
+                                            >
+                                                Continue with Microsoft
+                                            </button>
+                                        )}
+                                    </>
+                                )}
+                                <div style={{ marginTop: '14px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+                                    <button style={linkStyle} onClick={() => switchView('forgot')}>Forgot password?</button>
+                                    <button style={linkStyle} onClick={() => switchView('register')}>Create an account →</button>
+                                </div>
+                            </>
                         )}
-                        <div style={{ marginTop: '14px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
-                            <button style={linkStyle} onClick={() => switchView('forgot')}>Forgot password?</button>
-                            <button style={linkStyle} onClick={() => switchView('register')}>Create an account →</button>
-                        </div>
                     </>
                 )}
 
@@ -413,6 +453,72 @@ const DiscordAuthCallback = () => {
     );
 };
 
+const MicrosoftAuthCallback = () => {
+    const location = useLocation();
+    const [message, setMessage] = useState('Finalizing Microsoft sign-in...');
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        const query = new URLSearchParams(location.search || '');
+        const oauthCode = query.get('code');
+        const oauthState = query.get('state');
+        const oauthError = query.get('error');
+
+        if (oauthCode || oauthState || oauthError) {
+            const qs = new URLSearchParams();
+            if (oauthCode) qs.set('code', oauthCode);
+            if (oauthState) qs.set('state', oauthState);
+            if (oauthError) qs.set('error', oauthError);
+            window.location.replace(`${API_URL}/auth/microsoft/callback?${qs.toString()}`);
+            return;
+        }
+
+        const params = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+        const token = params.get('token');
+        const encodedUser = params.get('user');
+        const nextTarget = params.get('target') || '/';
+        const authError = params.get('error');
+
+        if (authError) {
+            setError(authError);
+            return;
+        }
+        if (!token || !encodedUser) {
+            setError('Microsoft sign-in did not return a valid session.');
+            return;
+        }
+
+        try {
+            const user = JSON.parse(decodeBase64Url(encodedUser));
+            localStorage.setItem('token', token);
+            localStorage.setItem('user', JSON.stringify(user));
+            window.dispatchEvent(new Event('user-updated'));
+            setMessage('Signed in. Redirecting...');
+            window.location.replace(nextTarget);
+        } catch (_err) {
+            setError('Microsoft sign-in response could not be parsed.');
+        }
+    }, [location.hash, location.search]);
+
+    return (
+        <div className="container" style={{ maxWidth: '520px', margin: '60px auto', padding: '20px' }}>
+            <div className="card" style={{ padding: '30px' }}>
+                <h2 style={{ marginTop: 0 }}>Microsoft Sign-In</h2>
+                {error ? (
+                    <>
+                        <div style={{ color: '#721c24', backgroundColor: '#f8d7da', padding: '12px 14px', borderRadius: '8px', marginBottom: '16px' }}>
+                            {error}
+                        </div>
+                        <Link to="/" style={{ color: '#007bff', textDecoration: 'none' }}>Return to home</Link>
+                    </>
+                ) : (
+                    <p style={{ margin: 0, color: '#555' }}>{message}</p>
+                )}
+            </div>
+        </div>
+    );
+};
+
 const RouteLoader = () => {
     const location = useLocation();
     const [loading, setLoading] = useState(false);
@@ -466,6 +572,7 @@ function App() {
                     {/* Standalone reset page - no app chrome */}
                     <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/auth/discord/callback" element={<DiscordAuthCallback />} />
+                    <Route path="/auth/microsoft/callback" element={<MicrosoftAuthCallback />} />
 
                     {/* Main app shell */}
                     <Route path="*" element={

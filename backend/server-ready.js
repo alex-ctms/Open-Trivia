@@ -255,6 +255,168 @@ async function upsertDiscordUser(profile) {
     return normalizeUserRow(inserted.rows[0], privacy);
 }
 
+// ── Microsoft Entra ID (Azure AD) SSO ───────────────────────────────────────────
+function resolveMicrosoftRedirectUri(redirectUri) {
+    const explicit = String(redirectUri || '').trim();
+    if (explicit) return normalizeExternalBaseUrl(explicit);
+    return buildAppUrl('/api/auth/microsoft/callback');
+}
+
+function buildMicrosoftState(targetPath = '/', extra = {}) {
+    return jwt.sign(
+        { provider: 'microsoft', targetPath, nonce: crypto.randomBytes(12).toString('hex'), ...extra },
+        process.env.JWT_SECRET,
+        { expiresIn: '10m' }
+    );
+}
+
+function verifyMicrosoftState(state) {
+    return jwt.verify(state, process.env.JWT_SECRET);
+}
+
+function redirectMicrosoftResult(res, payload) {
+    const params = new URLSearchParams();
+    Object.entries(payload).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+    });
+    res.redirect(buildAppUrl(`/auth/microsoft/callback#${params.toString()}`));
+}
+
+async function getMicrosoftSsoSettings() {
+    const envSettings = {
+        enabled: false,
+        tenant_id: String(process.env.MICROSOFT_TENANT_ID || '').trim(),
+        client_id: String(process.env.MICROSOFT_CLIENT_ID || '').trim(),
+        client_secret: String(process.env.MICROSOFT_CLIENT_SECRET || '').trim(),
+        redirect_uri: String(process.env.MICROSOFT_REDIRECT_URI || '').trim(),
+    };
+    const r = await pool.query('SELECT * FROM microsoft_sso_settings ORDER BY id DESC LIMIT 1');
+    const row = r.rows[0] || {};
+    const merged = {
+        enabled: row.enabled ?? envSettings.enabled,
+        tenant_id: String(row.tenant_id || envSettings.tenant_id || '').trim(),
+        client_id: String(row.client_id || envSettings.client_id || '').trim(),
+        client_secret: String(row.client_secret || envSettings.client_secret || '').trim(),
+        redirect_uri: String(row.redirect_uri || envSettings.redirect_uri || '').trim(),
+        updated_at: row.updated_at || null,
+    };
+    merged.redirect_uri = resolveMicrosoftRedirectUri(merged.redirect_uri);
+    merged.configured = !!(merged.tenant_id && merged.client_id && merged.client_secret && process.env.JWT_SECRET);
+    merged.active = !!(merged.enabled && merged.configured);
+    return merged;
+}
+
+// When Microsoft SSO is active, it's the *only* sign-in path (password login
+// and Discord OAuth are both refused) - see the admin panel's SSO toggle.
+async function assertPasswordAuthEnabled(res) {
+    const ms = await getMicrosoftSsoSettings();
+    if (ms.active) {
+        res.status(403).json({ error: 'Password sign-in is disabled. Please sign in with Microsoft.' });
+        return false;
+    }
+    return true;
+}
+
+async function exchangeMicrosoftCodeForToken(code, settings) {
+    const body = new URLSearchParams({
+        client_id: settings.client_id,
+        client_secret: settings.client_secret,
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: resolveMicrosoftRedirectUri(settings.redirect_uri),
+        scope: 'openid profile email User.Read',
+    });
+    const response = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(settings.tenant_id)}/oauth2/v2.0/token`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const message = data.error_description || data.error || 'Microsoft token exchange failed';
+        throw new Error(message);
+    }
+    return data;
+}
+
+async function fetchMicrosoftUser(accessToken) {
+    const response = await fetch('https://graph.microsoft.com/v1.0/me', {
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+        },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const message = data.error?.message || 'Microsoft profile lookup failed';
+        throw new Error(message);
+    }
+    return data;
+}
+
+function resolveMicrosoftDisplayName(profile) {
+    const preferred = [
+        profile.displayName,
+        profile.mail,
+        profile.userPrincipalName ? maskEmail(profile.userPrincipalName) : null,
+        'Microsoft User',
+    ];
+    const value = preferred.find(Boolean);
+    return String(value).slice(0, 60);
+}
+
+async function upsertMicrosoftUser(profile) {
+    const email = String(profile.mail || profile.userPrincipalName || '').trim().toLowerCase();
+    if (!email) throw new Error('Microsoft account did not provide an email address');
+
+    const privacy = await getPrivacySettings();
+    const showEmail = !privacy.hide_emails_by_default;
+    const displayName = resolveMicrosoftDisplayName(profile);
+    const microsoftId = String(profile.id);
+    const microsoftUsername = String(profile.userPrincipalName || profile.mail || '').trim() || null;
+    const countRes = await pool.query('SELECT COUNT(*) FROM users WHERE is_anonymous=FALSE');
+    const defaultRole = parseInt(countRes.rows[0].count, 10) === 0 ? 'admin' : 'player';
+
+    const existing = await pool.query(
+        'SELECT * FROM users WHERE microsoft_id=$1 OR email=$2 ORDER BY CASE WHEN microsoft_id=$1 THEN 0 ELSE 1 END LIMIT 1',
+        [microsoftId, email]
+    );
+
+    if (existing.rows.length) {
+        const row = existing.rows[0];
+        if (row.microsoft_id && row.microsoft_id !== microsoftId) {
+            throw new Error('This account is already linked to a different Microsoft profile');
+        }
+        if (row.email !== email && row.microsoft_id === microsoftId) {
+            throw new Error('Microsoft account is already linked to another email');
+        }
+        const nextDisplayName = row.display_name || displayName;
+        const nextShowEmail = row.show_email === null || row.show_email === undefined ? showEmail : row.show_email;
+        const updated = await pool.query(
+            `UPDATE users
+             SET email=$1,
+                 microsoft_id=$2,
+                 microsoft_username=$3,
+                 display_name=$4,
+                 show_email=$5
+             WHERE id=$6
+             RETURNING *`,
+            [email, microsoftId, microsoftUsername, nextDisplayName, nextShowEmail, row.id]
+        );
+        return normalizeUserRow(updated.rows[0], privacy);
+    }
+
+    const inserted = await pool.query(
+        `INSERT INTO users (
+            email, password_hash, role, display_name, show_email, microsoft_id, microsoft_username
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING *`,
+        [email, await bcrypt.hash(makeFallbackPassword(), 10), defaultRole, displayName, showEmail, microsoftId, microsoftUsername]
+    );
+    return normalizeUserRow(inserted.rows[0], privacy);
+}
+
 function buildDiscordOnlyEmail(discordId) {
     return `discord-${String(discordId).trim()}@users.open-trivia.invalid`;
 }
@@ -945,6 +1107,8 @@ async function initDatabase() {
                 discord_id VARCHAR(50) UNIQUE,
                 discord_username VARCHAR(255),
                 discord_avatar_url TEXT,
+                microsoft_id VARCHAR(64) UNIQUE,
+                microsoft_username VARCHAR(255),
                 animations_enabled BOOLEAN DEFAULT TRUE,
                 shareplay_banned BOOLEAN DEFAULT FALSE
             );
@@ -1066,6 +1230,15 @@ async function initDatabase() {
                 redirect_uri TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS microsoft_sso_settings (
+                id SERIAL PRIMARY KEY,
+                enabled BOOLEAN DEFAULT FALSE,
+                tenant_id TEXT,
+                client_id TEXT,
+                client_secret TEXT,
+                redirect_uri TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
             CREATE TABLE IF NOT EXISTS discord_bot_settings (
                 id SERIAL PRIMARY KEY,
                 enabled BOOLEAN DEFAULT FALSE,
@@ -1169,8 +1342,11 @@ async function initDatabase() {
             `ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_id VARCHAR(50)`,
             `ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_username VARCHAR(255)`,
             `ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_avatar_url TEXT`,
+            `ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_id VARCHAR(64)`,
+            `ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_username VARCHAR(255)`,
             `ALTER TABLE users ADD COLUMN IF NOT EXISTS animations_enabled BOOLEAN DEFAULT TRUE`,
             `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_discord_id ON users(discord_id) WHERE discord_id IS NOT NULL`,
+            `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_microsoft_id ON users(microsoft_id) WHERE microsoft_id IS NOT NULL`,
             `ALTER TABLE game_sessions ADD COLUMN IF NOT EXISTS category_id INT REFERENCES categories(id)`,
             `ALTER TABLE game_sessions ADD COLUMN IF NOT EXISTS points INTEGER DEFAULT 0`,
             `ALTER TABLE game_sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
@@ -1779,6 +1955,7 @@ async function applySnapshot(snapshot, mode = 'replace') {
 
 // ── AUTH ───────────────────────────────────────────────────────────────────────
 app.post('/api/register', async (req, res) => {
+    if (!(await assertPasswordAuthEnabled(res))) return;
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
     try {
@@ -1803,6 +1980,7 @@ app.post('/api/register', async (req, res) => {
 });
 
 app.post('/api/login', async (req, res) => {
+    if (!(await assertPasswordAuthEnabled(res))) return;
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
     try {
@@ -1839,11 +2017,19 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/auth/providers', async (_req, res) => {
     try {
         const settings = await getDiscordSsoSettings();
+        const msSettings = await getMicrosoftSsoSettings();
         res.json({
+            // Microsoft SSO is exclusive when active: password login and
+            // Discord OAuth are both refused, only Microsoft sign-in remains.
+            passwordLoginDisabled: msSettings.active,
             discord: {
-                enabled: settings.active,
+                enabled: settings.active && !msSettings.active,
                 configured: settings.configured,
-            }
+            },
+            microsoft: {
+                enabled: msSettings.active,
+                configured: msSettings.configured,
+            },
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1851,6 +2037,7 @@ app.get('/api/auth/providers', async (_req, res) => {
 });
 
 app.get('/api/auth/discord/start', async (req, res) => {
+    if (!(await assertPasswordAuthEnabled(res))) return;
     const settings = await getDiscordSsoSettings();
     if (!settings.active) {
         return res.status(503).json({ error: 'Discord SSO is not configured' });
@@ -1926,11 +2113,66 @@ app.get('/api/auth/discord/callback', async (req, res) => {
     }
 });
 
+app.get('/api/auth/microsoft/start', async (req, res) => {
+    const settings = await getMicrosoftSsoSettings();
+    if (!settings.active) {
+        return res.status(503).json({ error: 'Microsoft SSO is not configured' });
+    }
+    try {
+        const targetPath = String(req.query.target || '/').trim() || '/';
+        const state = buildMicrosoftState(targetPath.startsWith('/') ? targetPath : '/');
+        const url = new URL(`https://login.microsoftonline.com/${encodeURIComponent(settings.tenant_id)}/oauth2/v2.0/authorize`);
+        url.searchParams.set('client_id', settings.client_id);
+        url.searchParams.set('response_type', 'code');
+        url.searchParams.set('response_mode', 'query');
+        url.searchParams.set('redirect_uri', settings.redirect_uri);
+        url.searchParams.set('scope', 'openid profile email User.Read');
+        url.searchParams.set('state', state);
+        res.redirect(url.toString());
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/auth/microsoft/callback', async (req, res) => {
+    const { code, state, error } = req.query;
+    if (error) {
+        return redirectMicrosoftResult(res, { error: `Microsoft authorization failed: ${error}` });
+    }
+    if (!code || !state) {
+        return redirectMicrosoftResult(res, { error: 'Missing Microsoft OAuth callback parameters' });
+    }
+    try {
+        const settings = await getMicrosoftSsoSettings();
+        if (!settings.active) {
+            return redirectMicrosoftResult(res, { error: 'Microsoft SSO is not configured' });
+        }
+        const verifiedState = verifyMicrosoftState(String(state));
+        const tokenData = await exchangeMicrosoftCodeForToken(String(code), settings);
+        const profile = await fetchMicrosoftUser(tokenData.access_token);
+        const user = await upsertMicrosoftUser(profile);
+        if (user.blocked_until && new Date(user.blocked_until) > new Date() && user.role !== 'admin') {
+            return redirectMicrosoftResult(res, {
+                error: 'Account is blocked',
+                blocked_until: user.blocked_until,
+            });
+        }
+        redirectMicrosoftResult(res, {
+            token: signAuthToken(user),
+            user: base64UrlEncode(JSON.stringify(user)),
+            target: verifiedState.targetPath || '/',
+        });
+    } catch (err) {
+        redirectMicrosoftResult(res, { error: err.message || 'Microsoft sign-in failed' });
+    }
+});
+
 // ── PASSWORD RESET ─────────────────────────────────────────────────────────────
 // Request a password reset. Sends an email with a one-time link.
 // If SMTP is not configured, the token is logged to stdout and also returned
 // in the response body so dev environments work without a mail server.
 app.post('/api/auth/request-reset', async (req, res) => {
+    if (!(await assertPasswordAuthEnabled(res))) return;
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email required' });
     try {
@@ -1971,6 +2213,7 @@ app.post('/api/auth/request-reset', async (req, res) => {
 
 // Reset password using a token
 app.post('/api/auth/reset-password', async (req, res) => {
+    if (!(await assertPasswordAuthEnabled(res))) return;
     const { token, newPassword } = req.body;
     if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password required' });
     if (newPassword.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -3800,6 +4043,41 @@ app.post('/api/admin/discord-sso-settings', async (req, res) => {
         );
         const effective = await getDiscordSsoSettings();
         await auditLog(admin.id, 'DISCORD_SSO_SETTINGS_UPDATE', `enabled=${effective.enabled} configured=${effective.configured}`);
+        res.json({ ...inserted.rows[0], ...effective });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/admin/microsoft-sso-settings', async (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    try {
+        const settings = await getMicrosoftSsoSettings();
+        res.json(settings);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/admin/microsoft-sso-settings', async (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const body = req.body || {};
+    try {
+        const current = await getMicrosoftSsoSettings();
+        const next = {
+            enabled: typeof body.enabled === 'boolean' ? body.enabled : !!current.enabled,
+            tenant_id: String(body.tenant_id ?? current.tenant_id ?? '').trim(),
+            client_id: String(body.client_id ?? current.client_id ?? '').trim(),
+            client_secret: String(body.client_secret ?? current.client_secret ?? '').trim(),
+            redirect_uri: String(body.redirect_uri ?? current.redirect_uri ?? '').trim(),
+        };
+        const redirectUri = resolveMicrosoftRedirectUri(next.redirect_uri);
+        const inserted = await pool.query(
+            `INSERT INTO microsoft_sso_settings (enabled, tenant_id, client_id, client_secret, redirect_uri)
+             VALUES ($1,$2,$3,$4,$5)
+             RETURNING *`,
+            [next.enabled, next.tenant_id || null, next.client_id || null, next.client_secret || null, redirectUri]
+        );
+        const effective = await getMicrosoftSsoSettings();
+        await auditLog(admin.id, 'MICROSOFT_SSO_SETTINGS_UPDATE', `enabled=${effective.enabled} configured=${effective.configured}`);
         res.json({ ...inserted.rows[0], ...effective });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -312,6 +312,8 @@ export default function Admin() {
     const [backupLoading, setBackupLoading] = useState(false);
     const [discordSso, setDiscordSso] = useState(null);
     const [discordSsoSaving, setDiscordSsoSaving] = useState(false);
+    const [microsoftSso, setMicrosoftSso] = useState(null);
+    const [microsoftSsoSaving, setMicrosoftSsoSaving] = useState(false);
     const [discordBot, setDiscordBot] = useState(null);
     const [discordBotSaving, setDiscordBotSaving] = useState(false);
     const [userSearch, setUserSearch] = useState('');
@@ -411,6 +413,13 @@ export default function Admin() {
         } catch { flash('❌ Failed to load Discord SSO settings'); }
     }, []);
 
+    const loadMicrosoftSsoSettings = useCallback(async () => {
+        try {
+            const r = await axios.get(`${API_URL}/admin/microsoft-sso-settings`, authCfg());
+            setMicrosoftSso(r.data);
+        } catch { flash('❌ Failed to load Microsoft SSO settings'); }
+    }, []);
+
     const loadDiscordBotSettings = useCallback(async () => {
         try {
             const r = await axios.get(`${API_URL}/admin/discord-bot-settings`, authCfg());
@@ -473,6 +482,7 @@ export default function Admin() {
     useEffect(() => { if (tab === 'leaderboard') loadImageSettings(); }, [tab]);
     useEffect(() => { if (tab === 'data') loadBackups(); }, [tab]);
     useEffect(() => { if (tab === 'data') loadDiscordSsoSettings(); }, [tab]);
+    useEffect(() => { if (tab === 'data') loadMicrosoftSsoSettings(); }, [tab]);
     useEffect(() => { if (tab === 'data') loadDiscordBotSettings(); }, [tab]);
     useEffect(() => { if (tab === 'shareplay') loadShareplayData(); }, [tab]);
     useEffect(() => { setQuestionPage(1); }, [selCat?.id, questionSearch, questionDifficultyFilter, questionStatusFilter, questionMinAttempts, questionPageSize]);
@@ -891,6 +901,23 @@ export default function Admin() {
             flash(r.data.active ? '✅ Discord SSO saved and active' : '✅ Discord SSO settings saved');
         } catch (e) { flash('❌ ' + (e.response?.data?.error || 'Save failed')); }
         finally { setDiscordSsoSaving(false); }
+    };
+
+    const saveMicrosoftSsoSettings = async () => {
+        if (!microsoftSso) return;
+        setMicrosoftSsoSaving(true);
+        try {
+            const r = await axios.post(`${API_URL}/admin/microsoft-sso-settings`, {
+                enabled: !!microsoftSso.enabled,
+                tenant_id: microsoftSso.tenant_id || '',
+                client_id: microsoftSso.client_id || '',
+                client_secret: microsoftSso.client_secret || '',
+                redirect_uri: microsoftSso.redirect_uri || '',
+            }, authCfg());
+            setMicrosoftSso(r.data);
+            flash(r.data.active ? '✅ Microsoft SSO saved and active' : '✅ Microsoft SSO settings saved');
+        } catch (e) { flash('❌ ' + (e.response?.data?.error || 'Save failed')); }
+        finally { setMicrosoftSsoSaving(false); }
     };
 
     const saveDiscordBotSettings = async () => {
@@ -1816,6 +1843,118 @@ export default function Admin() {
                                         <div>4. Save the Client ID, Client Secret, and redirect URI here.</div>
                                         <div>5. Turn on “Enable Discord login button and OAuth flow” and save again.</div>
                                         <div>6. Test sign-in from the public login modal. Discord must return a verified email address.</div>
+                                    </div>
+                                </details>
+                            </div>
+                        )}
+                    </div>
+
+                    <div style={{ ...cardStyle, marginBottom: '16px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '12px' }}>
+                            <h4 style={{ margin: 0 }}>Microsoft (Entra ID) SSO</h4>
+                            {microsoftSso?.active ? (
+                                <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#155724', backgroundColor: '#d4edda', padding: '4px 8px', borderRadius: '999px' }}>
+                                    Active
+                                </span>
+                            ) : microsoftSso?.configured ? (
+                                <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#856404', backgroundColor: '#fff3cd', padding: '4px 8px', borderRadius: '999px' }}>
+                                    Configured but disabled
+                                </span>
+                            ) : (
+                                <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#721c24', backgroundColor: '#f8d7da', padding: '4px 8px', borderRadius: '999px' }}>
+                                    Not configured
+                                </span>
+                            )}
+                        </div>
+                        {!microsoftSso ? (
+                            <p style={{ color: '#888' }}>Loading Microsoft SSO settings...</p>
+                        ) : (
+                            <div style={{ display: 'grid', gap: '10px' }}>
+                                <div style={{ color: '#856404', backgroundColor: '#fff3cd', padding: '8px 12px', borderRadius: '6px', fontSize: '13px' }}>
+                                    ⚠️ When enabled, this becomes the <strong>only</strong> sign-in method — password login,
+                                    registration, password reset, and Discord sign-in are all disabled site-wide until
+                                    this is turned back off.
+                                </div>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={!!microsoftSso.enabled}
+                                        onChange={e => setMicrosoftSso({ ...microsoftSso, enabled: e.target.checked })}
+                                    />
+                                    Enable Microsoft sign-in (and disable password/Discord login)
+                                </label>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                    <div>
+                                        <label style={{ fontSize: '12px', color: '#888' }}>Directory (Tenant) ID</label>
+                                        <input
+                                            value={microsoftSso.tenant_id || ''}
+                                            onChange={e => setMicrosoftSso({ ...microsoftSso, tenant_id: e.target.value })}
+                                            placeholder="00000000-0000-0000-0000-000000000000"
+                                            style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '12px', color: '#888' }}>Application (Client) ID</label>
+                                        <input
+                                            value={microsoftSso.client_id || ''}
+                                            onChange={e => setMicrosoftSso({ ...microsoftSso, client_id: e.target.value })}
+                                            placeholder="00000000-0000-0000-0000-000000000000"
+                                            style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label style={{ fontSize: '12px', color: '#888' }}>Client Secret (Value)</label>
+                                    <input
+                                        type="password"
+                                        value={microsoftSso.client_secret || ''}
+                                        onChange={e => setMicrosoftSso({ ...microsoftSso, client_secret: e.target.value })}
+                                        placeholder="Paste the client secret value"
+                                        style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ fontSize: '12px', color: '#888' }}>Redirect URI</label>
+                                    <input
+                                        value={microsoftSso.redirect_uri || ''}
+                                        onChange={e => setMicrosoftSso({ ...microsoftSso, redirect_uri: e.target.value })}
+                                        placeholder="http://localhost:3000/api/auth/microsoft/callback"
+                                        style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                                    />
+                                    <div style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>
+                                        Leave blank to use the default callback based on `APP_URL`.
+                                    </div>
+                                </div>
+
+                                <div style={{ fontSize: '12px', color: '#666', lineHeight: 1.5 }}>
+                                    Current callback in use: <code>{microsoftSso.redirect_uri || 'http://localhost:3000/api/auth/microsoft/callback'}</code>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                    <button className="btn btn-primary" onClick={saveMicrosoftSsoSettings} disabled={microsoftSsoSaving}>
+                                        {microsoftSsoSaving ? 'Saving...' : 'Save Microsoft SSO Settings'}
+                                    </button>
+                                    <button
+                                        className="btn"
+                                        onClick={loadMicrosoftSsoSettings}
+                                        style={{ backgroundColor: '#6c757d', color: 'white' }}
+                                    >
+                                        Reload
+                                    </button>
+                                </div>
+
+                                <details style={{ marginTop: '4px' }}>
+                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>Setup Instructions</summary>
+                                    <div style={{ marginTop: '10px', fontSize: '13px', color: '#555', display: 'grid', gap: '8px' }}>
+                                        <div>1. In Azure AD (Entra ID), open your App Registration.</div>
+                                        <div>2. Copy the Directory (tenant) ID and Application (client) ID from the Overview page.</div>
+                                        <div>3. Under Certificates &amp; secrets, create a new client secret and copy its Value (not the Secret ID).</div>
+                                        <div>4. Under Authentication, add this Redirect URI (Web platform): <code>{microsoftSso.redirect_uri || 'http://localhost:3000/api/auth/microsoft/callback'}</code></div>
+                                        <div>5. Save the Tenant ID, Client ID, Client Secret, and redirect URI here.</div>
+                                        <div>6. Turn on "Enable Microsoft sign-in" and save again — this immediately disables password and Discord login for everyone.</div>
                                     </div>
                                 </details>
                             </div>
