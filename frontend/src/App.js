@@ -691,29 +691,9 @@ function App() {
 
                                 <details style={{ marginTop: '12px' }}>
                                     <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>Creditation</summary>
-                                    <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '10px', marginTop: '10px' }}>
-                                        {[
-                                            { label: 'Facebook', url: 'https://www.facebook.com/GameDirection', letter: 'F' },
-                                            { label: 'Instagram', url: 'https://www.instagram.com/gamedirection_network/', letter: 'I' },
-                                            { label: 'LinkedIn', url: 'https://www.linkedin.com/company/91366950/', letter: 'L' },
-                                            { label: 'YouTube', url: 'https://www.youtube.com/channel/UCLoulV2vXP-XWWIryuggYmg?view_as=subscriber', letter: 'Y' },
-                                            { label: 'X', url: 'https://x.com/gamedirectionus', letter: 'X' },
-                                            { label: 'Bluesky', url: 'https://bsky.app/profile/gamedirection.net', letter: 'B' },
-                                            { label: 'Buy Me a Coffee', url: 'https://buymeacoffee.com/gamedirection', letter: '$' },
-                                        ].map((l) => (
-                                            <a key={l.url} href={l.url} title={l.label} style={{ textDecoration: 'none' }}>
-                                                <svg width="28" height="28" viewBox="0 0 28 28" role="img" aria-label={l.label}>
-                                                    <circle cx="14" cy="14" r="13" fill="var(--header-bg)" />
-                                                    <text x="14" y="18" textAnchor="middle" fontSize="14" fill="#fff" fontFamily="Arial, sans-serif">
-                                                        {l.letter}
-                                                    </text>
-                                                </svg>
-                                            </a>
-                                        ))}
-                                    </div>
                                     <div style={{ margin: '12px auto 0', width: '60%' }}>
                                         <a
-                                            href="https://buymeacoffee.com/gamedirection"
+                                            href="https://github.com/Gamedirection/Open-Trivia"
                                             style={{
                                                 display: 'inline-block',
                                                 width: '100%',
@@ -726,11 +706,11 @@ function App() {
                                                 fontWeight: 'bold'
                                             }}
                                         >
-                                            Buy me a coffee
+                                            ⭐ Star my GitHub Project
                                         </a>
                                     </div>
                                     <div style={{ marginTop: '8px' }}>
-                                        Credits: Alex Sierputowski @ <a href="https://gamedirection.net" style={{ color: '#007bff', textDecoration: 'none' }}>GameDirection.net</a>
+                                        Credits: Alex Sierputowski
                                     </div>
                                 </details>
                             </footer>
