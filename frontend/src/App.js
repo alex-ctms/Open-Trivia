@@ -519,12 +519,15 @@ const TeamsAnswerComplete = () => {
         const choice = query.get('choice');
         const token = localStorage.getItem('token');
 
+        const target = `/teams/answer-complete?session=${sessionId}&choice=${choice}`;
+        const signInUrl = `${API_URL}/auth/microsoft/start?target=${encodeURIComponent(target)}`;
+
         if (!sessionId || !choice) {
             setState({ status: 'error', message: 'This link is missing required information.' });
             return;
         }
         if (!token) {
-            setState({ status: 'error', message: 'Sign-in did not complete. Please try clicking the answer again.' });
+            setState({ status: 'needs-auth', signInUrl });
             return;
         }
 
@@ -534,7 +537,13 @@ const TeamsAnswerComplete = () => {
             { headers: { Authorization: `Bearer ${token}` } }
         )
             .then((res) => setState({ status: 'done', result: res.data }))
-            .catch((err) => setState({ status: 'error', message: err.response?.data?.error || 'Could not record your answer.' }));
+            .catch((err) => {
+                if (err.response?.status === 401) {
+                    setState({ status: 'needs-auth', signInUrl });
+                } else {
+                    setState({ status: 'error', message: err.response?.data?.error || 'Could not record your answer.' });
+                }
+            });
     }, [location.search]);
 
     return (
@@ -542,6 +551,22 @@ const TeamsAnswerComplete = () => {
             <div className="card" style={{ padding: '30px', textAlign: 'center' }}>
                 <h2 style={{ marginTop: 0 }}>Teams Trivia</h2>
                 {state.status === 'submitting' && <p style={{ color: '#555' }}>Recording your answer...</p>}
+                {state.status === 'needs-auth' && (
+                    <>
+                        <p style={{ color: '#555', marginBottom: '16px' }}>
+                            You'll need to sign in with Microsoft to record this answer.
+                        </p>
+                        <a
+                            href={state.signInUrl}
+                            style={{
+                                display: 'inline-block', padding: '10px 20px', backgroundColor: '#2F2F2F',
+                                color: 'white', borderRadius: '8px', textDecoration: 'none', fontWeight: 'bold',
+                            }}
+                        >
+                            Continue with Microsoft
+                        </a>
+                    </>
+                )}
                 {state.status === 'error' && (
                     <>
                         <div style={{ color: '#721c24', backgroundColor: '#f8d7da', padding: '12px 14px', borderRadius: '8px', marginBottom: '16px' }}>

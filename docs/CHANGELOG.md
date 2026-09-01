@@ -1,5 +1,8 @@
 # Changelog / Roadmap
 
+## v0.3.23
+- Teams SSO: answering a question no longer forces a fresh Microsoft sign-in every time - the answer link now checks for an existing session (shared localStorage on the same origin) and only redirects through Microsoft when actually needed, shortening the hop chain and matching what a returning player expects. Also added a "Continue with Microsoft" fallback on the results page if the cached session has expired, instead of a dead-end error.
+
 ## v0.3.22
 - Fixed a critical bug where every backend route was reachable only at its bare path (e.g. `/categories`) while the frontend and this chart's ingress both call `/api/...` - added the `/api` prefix to all ~101 routes so login, gameplay, and admin all work again.
 - Added Microsoft Entra ID (Azure AD) SSO: confidential-client OAuth login, an admin panel settings card, and a "Login Methods" toggle section (Standard Login / Microsoft SSO / Discord SSO / Teams SSO are all independently on/off, with at least one required).

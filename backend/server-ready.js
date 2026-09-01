@@ -4337,7 +4337,19 @@ app.get('/api/teams/answer-redirect', async (req, res) => {
         const msSettings = await getMicrosoftSsoSettings();
         if (!msSettings.active) return renderError('Microsoft sign-in is not currently enabled on this site.');
         const target = `/teams/answer-complete?session=${sessionId}&choice=${choice}`;
-        res.redirect(`/api/auth/microsoft/start?target=${encodeURIComponent(target)}`);
+        const signInUrl = `/api/auth/microsoft/start?target=${encodeURIComponent(target)}`;
+        // The frontend and this route share an origin, so localStorage is
+        // shared too - skip the whole Microsoft round-trip (and its extra
+        // hops through the tunnel) when the browser already has a valid
+        // session from a previous sign-in.
+        res.send(`<!doctype html><html><body style="font-family:sans-serif;max-width:480px;margin:60px auto;text-align:center">
+<script>
+  var token = null;
+  try { token = localStorage.getItem('token'); } catch (e) {}
+  location.replace(token ? ${JSON.stringify(target)} : ${JSON.stringify(signInUrl)});
+</script>
+<p>One moment...</p>
+</body></html>`);
     } catch (err) { renderError(err.message); }
 });
 
