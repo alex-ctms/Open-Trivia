@@ -139,10 +139,10 @@ export default function Leaderboard() {
 
     const renderAvatar = (user) => {
         if (!showGravatar || censorNames) return null;
-        if (user.discord_avatar_url) {
+        if (user.discord_avatar_url || user.microsoft_avatar_url) {
             return (
                 <img
-                    src={user.discord_avatar_url}
+                    src={user.discord_avatar_url || user.microsoft_avatar_url}
                     alt={user.display_name || 'Player'}
                     width={35}
                     height={35}

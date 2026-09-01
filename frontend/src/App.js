@@ -29,6 +29,7 @@ const getDisplayName = (u) => {
 
 const getUserAvatarUrl = (u, size = 48) => {
     if (u?.discord_avatar_url) return u.discord_avatar_url;
+    if (u?.microsoft_avatar_url) return u.microsoft_avatar_url;
     if (u?.email) return gravatarUrl(u.email, size);
     return '';
 };
@@ -155,7 +156,7 @@ const LoginModal = () => {
     const [success, setSuccess]   = useState('');
     const [discordEnabled, setDiscordEnabled] = useState(false);
     const [microsoftEnabled, setMicrosoftEnabled] = useState(false);
-    const [passwordLoginDisabled, setPasswordLoginDisabled] = useState(false);
+    const [standardLoginEnabled, setStandardLoginEnabled] = useState(true);
 
     useEffect(() => {
         let cancelled = false;
@@ -164,10 +165,10 @@ const LoginModal = () => {
                 if (cancelled) return;
                 setDiscordEnabled(!!res.data?.discord?.enabled);
                 setMicrosoftEnabled(!!res.data?.microsoft?.enabled);
-                setPasswordLoginDisabled(!!res.data?.passwordLoginDisabled);
+                setStandardLoginEnabled(res.data?.standardLogin?.enabled !== false);
             })
             .catch(() => {
-                if (!cancelled) { setDiscordEnabled(false); setMicrosoftEnabled(false); setPasswordLoginDisabled(false); }
+                if (!cancelled) { setDiscordEnabled(false); setMicrosoftEnabled(false); setStandardLoginEnabled(true); }
             });
         return () => { cancelled = true; };
     }, []);
@@ -290,61 +291,50 @@ const LoginModal = () => {
                 {view === 'login' && (
                     <>
                         <h3 style={{ marginBottom: '16px' }}>Sign In</h3>
-                        {passwordLoginDisabled ? (
+                        {standardLoginEnabled && (
+                            <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required style={iStyle} />
+                                <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required style={iStyle} />
+                                <button type="submit" className="btn btn-primary" style={{ padding: '10px' }}>Sign In</button>
+                            </form>
+                        )}
+                        {(discordEnabled || microsoftEnabled) && (
                             <>
-                                <p style={{ fontSize: '0.85rem', color: '#666', marginBottom: '14px' }}>
-                                    Sign-in is managed through Microsoft for this site.
-                                </p>
-                                <button
-                                    type="button"
-                                    className="btn"
-                                    onClick={handleMicrosoftLogin}
-                                    style={{ padding: '10px', backgroundColor: '#2F2F2F', color: 'white' }}
-                                >
-                                    Continue with Microsoft
-                                </button>
-                            </>
-                        ) : (
-                            <>
-                                <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                    <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required style={iStyle} />
-                                    <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required style={iStyle} />
-                                    <button type="submit" className="btn btn-primary" style={{ padding: '10px' }}>Sign In</button>
-                                </form>
-                                {(discordEnabled || microsoftEnabled) && (
-                                    <>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '14px 0 4px' }}>
-                                            <div style={{ flex: 1, height: '1px', backgroundColor: '#ddd' }} />
-                                            <span style={{ fontSize: '0.8rem', color: '#666', textTransform: 'uppercase', letterSpacing: '0.08em' }}>or</span>
-                                            <div style={{ flex: 1, height: '1px', backgroundColor: '#ddd' }} />
-                                        </div>
-                                        {discordEnabled && (
-                                            <button
-                                                type="button"
-                                                className="btn"
-                                                onClick={handleDiscordLogin}
-                                                style={{ padding: '10px', backgroundColor: '#5865F2', color: 'white', marginBottom: microsoftEnabled ? '8px' : 0 }}
-                                            >
-                                                Continue with Discord
-                                            </button>
-                                        )}
-                                        {microsoftEnabled && (
-                                            <button
-                                                type="button"
-                                                className="btn"
-                                                onClick={handleMicrosoftLogin}
-                                                style={{ padding: '10px', backgroundColor: '#2F2F2F', color: 'white' }}
-                                            >
-                                                Continue with Microsoft
-                                            </button>
-                                        )}
-                                    </>
+                                {standardLoginEnabled && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '14px 0 4px' }}>
+                                        <div style={{ flex: 1, height: '1px', backgroundColor: '#ddd' }} />
+                                        <span style={{ fontSize: '0.8rem', color: '#666', textTransform: 'uppercase', letterSpacing: '0.08em' }}>or</span>
+                                        <div style={{ flex: 1, height: '1px', backgroundColor: '#ddd' }} />
+                                    </div>
                                 )}
-                                <div style={{ marginTop: '14px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
-                                    <button style={linkStyle} onClick={() => switchView('forgot')}>Forgot password?</button>
-                                    <button style={linkStyle} onClick={() => switchView('register')}>Create an account →</button>
-                                </div>
+                                {discordEnabled && (
+                                    <button
+                                        type="button"
+                                        className="btn"
+                                        onClick={handleDiscordLogin}
+                                        style={{ padding: '10px', backgroundColor: '#5865F2', color: 'white', marginBottom: microsoftEnabled ? '8px' : 0, width: '100%' }}
+                                    >
+                                        Continue with Discord
+                                    </button>
+                                )}
+                                {microsoftEnabled && (
+                                    <button
+                                        type="button"
+                                        className="btn"
+                                        onClick={handleMicrosoftLogin}
+                                        style={{ padding: '10px', backgroundColor: '#2F2F2F', color: 'white', width: '100%' }}
+                                    >
+                                        Continue with Microsoft
+                                    </button>
+                                )}
                             </>
+                        )}
+                        {standardLoginEnabled && (
+                            <div style={{ marginTop: '14px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+                                <button style={linkStyle} onClick={() => switchView('forgot')}>Forgot password?</button>
+                                <button style={linkStyle} onClick={() => switchView('register')}>Create an account →</button>
+                            </div>
+                        )}
                         )}
                     </>
                 )}
@@ -519,6 +509,70 @@ const MicrosoftAuthCallback = () => {
     );
 };
 
+const TeamsAnswerComplete = () => {
+    const location = useLocation();
+    const [state, setState] = useState({ status: 'submitting' });
+
+    useEffect(() => {
+        const query = new URLSearchParams(location.search || '');
+        const sessionId = query.get('session');
+        const choice = query.get('choice');
+        const token = localStorage.getItem('token');
+
+        if (!sessionId || !choice) {
+            setState({ status: 'error', message: 'This link is missing required information.' });
+            return;
+        }
+        if (!token) {
+            setState({ status: 'error', message: 'Sign-in did not complete. Please try clicking the answer again.' });
+            return;
+        }
+
+        axios.post(
+            `${API_URL}/teams/answer`,
+            { session_id: sessionId, choice },
+            { headers: { Authorization: `Bearer ${token}` } }
+        )
+            .then((res) => setState({ status: 'done', result: res.data }))
+            .catch((err) => setState({ status: 'error', message: err.response?.data?.error || 'Could not record your answer.' }));
+    }, [location.search]);
+
+    return (
+        <div className="container" style={{ maxWidth: '520px', margin: '60px auto', padding: '20px' }}>
+            <div className="card" style={{ padding: '30px', textAlign: 'center' }}>
+                <h2 style={{ marginTop: 0 }}>Teams Trivia</h2>
+                {state.status === 'submitting' && <p style={{ color: '#555' }}>Recording your answer...</p>}
+                {state.status === 'error' && (
+                    <>
+                        <div style={{ color: '#721c24', backgroundColor: '#f8d7da', padding: '12px 14px', borderRadius: '8px', marginBottom: '16px' }}>
+                            {state.message}
+                        </div>
+                        <Link to="/" style={{ color: '#007bff', textDecoration: 'none' }}>Return to home</Link>
+                    </>
+                )}
+                {state.status === 'done' && (
+                    <>
+                        <div style={{
+                            fontSize: '2.5rem', marginBottom: '10px',
+                        }}>
+                            {state.result.is_correct ? '✅' : '❌'}
+                        </div>
+                        <h3 style={{ margin: '0 0 8px' }}>
+                            {state.result.is_correct ? `Correct! +${state.result.points_awarded} points` : 'Not quite!'}
+                        </h3>
+                        {!state.result.is_correct && (
+                            <p style={{ color: '#555' }}>
+                                Correct answer: <strong>{state.result.correct_answer}: {state.result.correct_answer_text}</strong>
+                            </p>
+                        )}
+                        <Link to="/leaderboard" style={{ color: '#007bff', textDecoration: 'none' }}>View leaderboard →</Link>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+};
+
 const RouteLoader = () => {
     const location = useLocation();
     const [loading, setLoading] = useState(false);
@@ -573,6 +627,7 @@ function App() {
                     <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/auth/discord/callback" element={<DiscordAuthCallback />} />
                     <Route path="/auth/microsoft/callback" element={<MicrosoftAuthCallback />} />
+                    <Route path="/teams/answer-complete" element={<TeamsAnswerComplete />} />
 
                     {/* Main app shell */}
                     <Route path="*" element={

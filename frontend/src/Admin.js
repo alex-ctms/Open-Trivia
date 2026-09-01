@@ -21,6 +21,7 @@ const Badge = ({ color, text }) => (
 
 const getUserAvatarUrl = (user, size = 48) => {
     if (user?.discord_avatar_url) return user.discord_avatar_url;
+    if (user?.microsoft_avatar_url) return user.microsoft_avatar_url;
     if (user?.email) return gravatarUrl(user.email, size);
     return '';
 };
@@ -314,6 +315,11 @@ export default function Admin() {
     const [discordSsoSaving, setDiscordSsoSaving] = useState(false);
     const [microsoftSso, setMicrosoftSso] = useState(null);
     const [microsoftSsoSaving, setMicrosoftSsoSaving] = useState(false);
+    const [teamsBot, setTeamsBot] = useState(null);
+    const [teamsBotSaving, setTeamsBotSaving] = useState(false);
+    const [teamsBotPosting, setTeamsBotPosting] = useState(false);
+    const [loginSettings, setLoginSettings] = useState(null);
+    const [loginSettingsSaving, setLoginSettingsSaving] = useState(false);
     const [discordBot, setDiscordBot] = useState(null);
     const [discordBotSaving, setDiscordBotSaving] = useState(false);
     const [userSearch, setUserSearch] = useState('');
@@ -420,6 +426,20 @@ export default function Admin() {
         } catch { flash('❌ Failed to load Microsoft SSO settings'); }
     }, []);
 
+    const loadTeamsBotSettings = useCallback(async () => {
+        try {
+            const r = await axios.get(`${API_URL}/admin/teams-bot-settings`, authCfg());
+            setTeamsBot(r.data);
+        } catch { flash('❌ Failed to load Teams bot settings'); }
+    }, []);
+
+    const loadLoginSettings = useCallback(async () => {
+        try {
+            const r = await axios.get(`${API_URL}/admin/login-settings`, authCfg());
+            setLoginSettings(r.data);
+        } catch { flash('❌ Failed to load login settings'); }
+    }, []);
+
     const loadDiscordBotSettings = useCallback(async () => {
         try {
             const r = await axios.get(`${API_URL}/admin/discord-bot-settings`, authCfg());
@@ -483,6 +503,8 @@ export default function Admin() {
     useEffect(() => { if (tab === 'data') loadBackups(); }, [tab]);
     useEffect(() => { if (tab === 'data') loadDiscordSsoSettings(); }, [tab]);
     useEffect(() => { if (tab === 'data') loadMicrosoftSsoSettings(); }, [tab]);
+    useEffect(() => { if (tab === 'data') loadTeamsBotSettings(); }, [tab]);
+    useEffect(() => { if (tab === 'data') loadLoginSettings(); }, [tab]);
     useEffect(() => { if (tab === 'data') loadDiscordBotSettings(); }, [tab]);
     useEffect(() => { if (tab === 'shareplay') loadShareplayData(); }, [tab]);
     useEffect(() => { setQuestionPage(1); }, [selCat?.id, questionSearch, questionDifficultyFilter, questionStatusFilter, questionMinAttempts, questionPageSize]);
@@ -903,7 +925,7 @@ export default function Admin() {
         finally { setDiscordSsoSaving(false); }
     };
 
-    const saveMicrosoftSsoSettings = async () => {
+    const saveMicrosoftSsoSettings = async (overrides = {}) => {
         if (!microsoftSso) return;
         setMicrosoftSsoSaving(true);
         try {
@@ -913,11 +935,50 @@ export default function Admin() {
                 client_id: microsoftSso.client_id || '',
                 client_secret: microsoftSso.client_secret || '',
                 redirect_uri: microsoftSso.redirect_uri || '',
+                ...overrides,
             }, authCfg());
             setMicrosoftSso(r.data);
             flash(r.data.active ? '✅ Microsoft SSO saved and active' : '✅ Microsoft SSO settings saved');
         } catch (e) { flash('❌ ' + (e.response?.data?.error || 'Save failed')); }
         finally { setMicrosoftSsoSaving(false); }
+    };
+
+    const saveTeamsBotSettings = async (overrides = {}) => {
+        if (!teamsBot) return;
+        setTeamsBotSaving(true);
+        try {
+            const r = await axios.post(`${API_URL}/admin/teams-bot-settings`, {
+                enabled: !!teamsBot.enabled,
+                webhook_url: teamsBot.webhook_url || '',
+                ...overrides,
+            }, authCfg());
+            setTeamsBot(r.data);
+            flash(r.data.active ? '✅ Teams SSO saved and active' : '✅ Teams bot settings saved');
+        } catch (e) { flash('❌ ' + (e.response?.data?.error || 'Save failed')); }
+        finally { setTeamsBotSaving(false); }
+    };
+
+    const postTeamsQuestionNow = async () => {
+        setTeamsBotPosting(true);
+        try {
+            await axios.post(`${API_URL}/admin/teams-bot/post-question`, {}, authCfg());
+            flash('✅ Posted a trivia question to Teams');
+        } catch (e) { flash('❌ ' + (e.response?.data?.error || 'Post failed')); }
+        finally { setTeamsBotPosting(false); }
+    };
+
+    const saveLoginSettings = async (overrides = {}) => {
+        if (!loginSettings) return;
+        setLoginSettingsSaving(true);
+        try {
+            const r = await axios.post(`${API_URL}/admin/login-settings`, {
+                standard_login_enabled: !!loginSettings.standard_login_enabled,
+                ...overrides,
+            }, authCfg());
+            setLoginSettings(r.data);
+            flash('✅ Login settings saved');
+        } catch (e) { flash('❌ ' + (e.response?.data?.error || 'Save failed')); }
+        finally { setLoginSettingsSaving(false); }
     };
 
     const saveDiscordBotSettings = async () => {
@@ -1753,6 +1814,46 @@ export default function Admin() {
                     </div>
 
                     <div style={{ ...cardStyle, marginBottom: '16px' }}>
+                        <h4 style={{ margin: '0 0 4px' }}>Login Methods</h4>
+                        <p style={{ fontSize: '12px', color: '#888', margin: '0 0 12px' }}>
+                            At least one must stay enabled. Full setup for each (client IDs, secrets, webhook URL) is below.
+                        </p>
+                        {!loginSettings || !microsoftSso || !teamsBot ? (
+                            <p style={{ color: '#888' }}>Loading...</p>
+                        ) : (
+                            <div style={{ display: 'grid', gap: '8px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={!!loginSettings.standard_login_enabled}
+                                        disabled={loginSettingsSaving}
+                                        onChange={e => { setLoginSettings({ ...loginSettings, standard_login_enabled: e.target.checked }); saveLoginSettings({ standard_login_enabled: e.target.checked }); }}
+                                    />
+                                    Enable Standard Login (email/password)
+                                </label>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={!!microsoftSso.enabled}
+                                        disabled={microsoftSsoSaving || !microsoftSso.configured}
+                                        onChange={e => { setMicrosoftSso({ ...microsoftSso, enabled: e.target.checked }); saveMicrosoftSsoSettings({ enabled: e.target.checked }); }}
+                                    />
+                                    Enable Microsoft SSO {!microsoftSso.configured && <span style={{ color: '#888', fontSize: '12px' }}>(configure below first)</span>}
+                                </label>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={!!teamsBot.enabled}
+                                        disabled={teamsBotSaving || !teamsBot.configured || !microsoftSso.active}
+                                        onChange={e => { setTeamsBot({ ...teamsBot, enabled: e.target.checked }); saveTeamsBotSettings({ enabled: e.target.checked }); }}
+                                    />
+                                    Enable Teams SSO {!microsoftSso.active ? <span style={{ color: '#888', fontSize: '12px' }}>(needs Microsoft SSO active)</span> : (!teamsBot.configured && <span style={{ color: '#888', fontSize: '12px' }}>(configure webhook below first)</span>)}
+                                </label>
+                            </div>
+                        )}
+                    </div>
+
+                    <div style={{ ...cardStyle, marginBottom: '16px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '12px' }}>
                             <h4 style={{ margin: 0 }}>Discord SSO</h4>
                             {discordSso?.active ? (
@@ -1870,18 +1971,13 @@ export default function Admin() {
                             <p style={{ color: '#888' }}>Loading Microsoft SSO settings...</p>
                         ) : (
                             <div style={{ display: 'grid', gap: '10px' }}>
-                                <div style={{ color: '#856404', backgroundColor: '#fff3cd', padding: '8px 12px', borderRadius: '6px', fontSize: '13px' }}>
-                                    ⚠️ When enabled, this becomes the <strong>only</strong> sign-in method — password login,
-                                    registration, password reset, and Discord sign-in are all disabled site-wide until
-                                    this is turned back off.
-                                </div>
                                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
                                     <input
                                         type="checkbox"
                                         checked={!!microsoftSso.enabled}
-                                        onChange={e => setMicrosoftSso({ ...microsoftSso, enabled: e.target.checked })}
+                                        onChange={e => { setMicrosoftSso({ ...microsoftSso, enabled: e.target.checked }); saveMicrosoftSsoSettings({ enabled: e.target.checked }); }}
                                     />
-                                    Enable Microsoft sign-in (and disable password/Discord login)
+                                    Enable Microsoft sign-in
                                 </label>
 
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -1954,7 +2050,90 @@ export default function Admin() {
                                         <div>3. Under Certificates &amp; secrets, create a new client secret and copy its Value (not the Secret ID).</div>
                                         <div>4. Under Authentication, add this Redirect URI (Web platform): <code>{microsoftSso.redirect_uri || 'http://localhost:3000/api/auth/microsoft/callback'}</code></div>
                                         <div>5. Save the Tenant ID, Client ID, Client Secret, and redirect URI here.</div>
-                                        <div>6. Turn on "Enable Microsoft sign-in" and save again — this immediately disables password and Discord login for everyone.</div>
+                                        <div>6. Turn on "Enable Microsoft sign-in" and save again (or use the checkbox in Login Methods above).</div>
+                                    </div>
+                                </details>
+                            </div>
+                        )}
+                    </div>
+
+                    <div style={{ ...cardStyle, marginBottom: '16px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '12px' }}>
+                            <h4 style={{ margin: 0 }}>Teams SSO (Power Automate)</h4>
+                            {teamsBot?.active ? (
+                                <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#155724', backgroundColor: '#d4edda', padding: '4px 8px', borderRadius: '999px' }}>
+                                    Active
+                                </span>
+                            ) : teamsBot?.configured ? (
+                                <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#856404', backgroundColor: '#fff3cd', padding: '4px 8px', borderRadius: '999px' }}>
+                                    Configured but disabled
+                                </span>
+                            ) : (
+                                <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#721c24', backgroundColor: '#f8d7da', padding: '4px 8px', borderRadius: '999px' }}>
+                                    Not configured
+                                </span>
+                            )}
+                        </div>
+                        {!teamsBot ? (
+                            <p style={{ color: '#888' }}>Loading Teams settings...</p>
+                        ) : (
+                            <div style={{ display: 'grid', gap: '10px' }}>
+                                <p style={{ fontSize: '13px', color: '#666', margin: 0 }}>
+                                    Posts trivia questions as Adaptive Cards to a Teams channel via a Power Automate flow.
+                                    Answer buttons open the site through Microsoft sign-in (requires Microsoft SSO active above) -
+                                    there's no separate Teams login, players just need a Microsoft account.
+                                </p>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={!!teamsBot.enabled}
+                                        onChange={e => { setTeamsBot({ ...teamsBot, enabled: e.target.checked }); saveTeamsBotSettings({ enabled: e.target.checked }); }}
+                                    />
+                                    Enable Teams SSO
+                                </label>
+
+                                <div>
+                                    <label style={{ fontSize: '12px', color: '#888' }}>Power Automate Flow HTTP Trigger URL</label>
+                                    <input
+                                        value={teamsBot.webhook_url || ''}
+                                        onChange={e => setTeamsBot({ ...teamsBot, webhook_url: e.target.value })}
+                                        placeholder="https://prod-00.westus.logic.azure.com/workflows/.../triggers/manual/paths/invoke?..."
+                                        style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                                    />
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                    <button className="btn btn-primary" onClick={() => saveTeamsBotSettings()} disabled={teamsBotSaving}>
+                                        {teamsBotSaving ? 'Saving...' : 'Save Teams Settings'}
+                                    </button>
+                                    <button
+                                        className="btn"
+                                        onClick={loadTeamsBotSettings}
+                                        style={{ backgroundColor: '#6c757d', color: 'white' }}
+                                    >
+                                        Reload
+                                    </button>
+                                    <button
+                                        className="btn"
+                                        onClick={postTeamsQuestionNow}
+                                        disabled={teamsBotPosting || !teamsBot.active}
+                                        style={{ backgroundColor: '#6264A7', color: 'white' }}
+                                        title={!teamsBot.active ? 'Enable and save first' : ''}
+                                    >
+                                        {teamsBotPosting ? 'Posting...' : 'Post a Question Now'}
+                                    </button>
+                                </div>
+
+                                <details style={{ marginTop: '4px' }}>
+                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>Setup Instructions</summary>
+                                    <div style={{ marginTop: '10px', fontSize: '13px', color: '#555', display: 'grid', gap: '8px' }}>
+                                        <div>1. Import <code>OpenTrivia.zip</code> (services/open-trivia-powerautomate in the repo) as a solution in Power Automate.</div>
+                                        <div>2. Open the imported "OT-TeamsCard" flow and edit its two "Post card in a chat or channel" actions to point at your real Team/channel (they ship with placeholder IDs).</div>
+                                        <div>3. In the flow's "Attachments_is_null" condition, fix the field reference from <code>Body?['Attachments']</code> (capital A - a bug in the template, never matches) to <code>Body?['attachments']</code> (lowercase) so real Adaptive Cards render instead of raw JSON text.</div>
+                                        <div>4. Turn the flow on, then copy its trigger's HTTP POST URL (from the trigger step's "..." menu → "See documentation", or from Power Automate → flow details).</div>
+                                        <div>5. Paste that URL above as the webhook URL and save.</div>
+                                        <div>6. Make sure Microsoft SSO (above) is configured and active - Teams answer links sign users in through it.</div>
+                                        <div>7. Turn on "Enable Teams SSO" and save, then use "Post a Question Now" to test.</div>
                                     </div>
                                 </details>
                             </div>

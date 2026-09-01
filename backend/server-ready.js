@@ -308,13 +308,99 @@ async function getMicrosoftSsoSettings() {
 
 // When Microsoft SSO is active, it's the *only* sign-in path (password login
 // and Discord OAuth are both refused) - see the admin panel's SSO toggle.
+async function getLoginSettings() {
+    const r = await pool.query('SELECT * FROM login_settings ORDER BY id DESC LIMIT 1');
+    const row = r.rows[0];
+    return { standard_login_enabled: row ? !!row.standard_login_enabled : true, updated_at: row?.updated_at || null };
+}
+
+async function getTeamsBotSettings() {
+    const envSettings = {
+        enabled: false,
+        webhook_url: String(process.env.TEAMS_BOT_WEBHOOK_URL || '').trim(),
+    };
+    const r = await pool.query('SELECT * FROM teams_bot_settings ORDER BY id DESC LIMIT 1');
+    const row = r.rows[0] || {};
+    const merged = {
+        enabled: row.enabled ?? envSettings.enabled,
+        webhook_url: String(row.webhook_url || envSettings.webhook_url || '').trim(),
+        updated_at: row.updated_at || null,
+    };
+    merged.configured = !!merged.webhook_url;
+    merged.active = !!(merged.enabled && merged.configured);
+    return merged;
+}
+
+// The three toggles (Standard Login, Microsoft SSO, Teams SSO) may be mixed
+// freely, but at least one must always remain enabled - checked from every
+// settings-save endpoint using the OTHER TWO's *current* value plus the one
+// being changed, so no single save can lock everyone out.
+async function assertAtLeastOneLoginMethodEnabled(res, { standard, microsoft, teams }) {
+    if (standard || microsoft || teams) return true;
+    res.status(400).json({ error: 'At least one sign-in method (Standard Login, Microsoft SSO, or Teams SSO) must stay enabled.' });
+    return false;
+}
+
 async function assertPasswordAuthEnabled(res) {
-    const ms = await getMicrosoftSsoSettings();
-    if (ms.active) {
-        res.status(403).json({ error: 'Password sign-in is disabled. Please sign in with Microsoft.' });
+    const login = await getLoginSettings();
+    if (!login.standard_login_enabled) {
+        res.status(403).json({ error: 'Password sign-in is disabled for this site.' });
         return false;
     }
     return true;
+}
+
+async function fetchMicrosoftAvatarDataUri(accessToken) {
+    try {
+        const response = await fetch('https://graph.microsoft.com/v1.0/me/photo/$value', {
+            headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!response.ok) return null;
+        const contentType = response.headers.get('content-type') || 'image/jpeg';
+        const buffer = Buffer.from(await response.arrayBuffer());
+        return `data:${contentType};base64,${buffer.toString('base64')}`;
+    } catch {
+        return null;
+    }
+}
+
+async function postTeamsAdaptiveCard(webhookUrl, card) {
+    const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            type: 'message',
+            attachments: [
+                { contentType: 'application/vnd.microsoft.card.adaptive', content: card },
+            ],
+        }),
+    });
+    if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`Power Automate webhook responded ${response.status}: ${text.slice(0, 200)}`);
+    }
+}
+
+function buildTeamsAnswerRedirectUrl(sessionId, choice) {
+    return buildPublicAppUrl(`/api/teams/answer-redirect?session=${sessionId}&choice=${choice}`);
+}
+
+function buildTeamsTriviaCard(question, options, sessionId) {
+    return {
+        $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+        type: 'AdaptiveCard',
+        version: '1.5',
+        body: [
+            { type: 'TextBlock', text: '🧠 Trivia Time!', weight: 'Bolder', size: 'Medium' },
+            { type: 'TextBlock', text: `${question.category_name || ''} · ${String(question.complexity || '').toUpperCase()}`.trim(), isSubtle: true, spacing: 'None' },
+            { type: 'TextBlock', text: question.text, wrap: true, spacing: 'Medium' },
+        ],
+        actions: options.map((opt) => ({
+            type: 'Action.OpenUrl',
+            title: `${opt.char}: ${opt.text}`.slice(0, 70),
+            url: buildTeamsAnswerRedirectUrl(sessionId, opt.char),
+        })),
+    };
 }
 
 async function exchangeMicrosoftCodeForToken(code, settings) {
@@ -366,7 +452,7 @@ function resolveMicrosoftDisplayName(profile) {
     return String(value).slice(0, 60);
 }
 
-async function upsertMicrosoftUser(profile) {
+async function upsertMicrosoftUser(profile, avatarDataUri = null) {
     const email = String(profile.mail || profile.userPrincipalName || '').trim().toLowerCase();
     if (!email) throw new Error('Microsoft account did not provide an email address');
 
@@ -393,26 +479,28 @@ async function upsertMicrosoftUser(profile) {
         }
         const nextDisplayName = row.display_name || displayName;
         const nextShowEmail = row.show_email === null || row.show_email === undefined ? showEmail : row.show_email;
+        const nextAvatarUrl = avatarDataUri || row.microsoft_avatar_url || null;
         const updated = await pool.query(
             `UPDATE users
              SET email=$1,
                  microsoft_id=$2,
                  microsoft_username=$3,
-                 display_name=$4,
-                 show_email=$5
-             WHERE id=$6
+                 microsoft_avatar_url=$4,
+                 display_name=$5,
+                 show_email=$6
+             WHERE id=$7
              RETURNING *`,
-            [email, microsoftId, microsoftUsername, nextDisplayName, nextShowEmail, row.id]
+            [email, microsoftId, microsoftUsername, nextAvatarUrl, nextDisplayName, nextShowEmail, row.id]
         );
         return normalizeUserRow(updated.rows[0], privacy);
     }
 
     const inserted = await pool.query(
         `INSERT INTO users (
-            email, password_hash, role, display_name, show_email, microsoft_id, microsoft_username
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+            email, password_hash, role, display_name, show_email, microsoft_id, microsoft_username, microsoft_avatar_url
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          RETURNING *`,
-        [email, await bcrypt.hash(makeFallbackPassword(), 10), defaultRole, displayName, showEmail, microsoftId, microsoftUsername]
+        [email, await bcrypt.hash(makeFallbackPassword(), 10), defaultRole, displayName, showEmail, microsoftId, microsoftUsername, avatarDataUri]
     );
     return normalizeUserRow(inserted.rows[0], privacy);
 }
@@ -1109,6 +1197,7 @@ async function initDatabase() {
                 discord_avatar_url TEXT,
                 microsoft_id VARCHAR(64) UNIQUE,
                 microsoft_username VARCHAR(255),
+                microsoft_avatar_url TEXT,
                 animations_enabled BOOLEAN DEFAULT TRUE,
                 shareplay_banned BOOLEAN DEFAULT FALSE
             );
@@ -1239,6 +1328,35 @@ async function initDatabase() {
                 redirect_uri TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS login_settings (
+                id SERIAL PRIMARY KEY,
+                standard_login_enabled BOOLEAN DEFAULT TRUE,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS teams_bot_settings (
+                id SERIAL PRIMARY KEY,
+                enabled BOOLEAN DEFAULT FALSE,
+                webhook_url TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS teams_trivia_sessions (
+                id SERIAL PRIMARY KEY,
+                question_id INT REFERENCES questions(id),
+                category_id INT REFERENCES categories(id),
+                correct_answer CHAR(1) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS teams_trivia_answers (
+                id SERIAL PRIMARY KEY,
+                session_id INT REFERENCES teams_trivia_sessions(id) ON DELETE CASCADE,
+                user_id INT REFERENCES users(id),
+                selected_answer CHAR(1) NOT NULL,
+                is_correct BOOLEAN NOT NULL,
+                points_awarded INTEGER DEFAULT 0,
+                answered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (session_id, user_id)
+            );
             CREATE TABLE IF NOT EXISTS discord_bot_settings (
                 id SERIAL PRIMARY KEY,
                 enabled BOOLEAN DEFAULT FALSE,
@@ -1344,6 +1462,7 @@ async function initDatabase() {
             `ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_avatar_url TEXT`,
             `ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_id VARCHAR(64)`,
             `ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_username VARCHAR(255)`,
+            `ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_avatar_url TEXT`,
             `ALTER TABLE users ADD COLUMN IF NOT EXISTS animations_enabled BOOLEAN DEFAULT TRUE`,
             `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_discord_id ON users(discord_id) WHERE discord_id IS NOT NULL`,
             `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_microsoft_id ON users(microsoft_id) WHERE microsoft_id IS NOT NULL`,
@@ -2018,17 +2137,21 @@ app.get('/api/auth/providers', async (_req, res) => {
     try {
         const settings = await getDiscordSsoSettings();
         const msSettings = await getMicrosoftSsoSettings();
+        const teamsSettings = await getTeamsBotSettings();
+        const loginSettings = await getLoginSettings();
         res.json({
-            // Microsoft SSO is exclusive when active: password login and
-            // Discord OAuth are both refused, only Microsoft sign-in remains.
-            passwordLoginDisabled: msSettings.active,
+            standardLogin: { enabled: loginSettings.standard_login_enabled },
             discord: {
-                enabled: settings.active && !msSettings.active,
+                enabled: settings.active,
                 configured: settings.configured,
             },
             microsoft: {
                 enabled: msSettings.active,
                 configured: msSettings.configured,
+            },
+            teams: {
+                enabled: teamsSettings.active,
+                configured: teamsSettings.configured,
             },
         });
     } catch (err) {
@@ -2037,7 +2160,6 @@ app.get('/api/auth/providers', async (_req, res) => {
 });
 
 app.get('/api/auth/discord/start', async (req, res) => {
-    if (!(await assertPasswordAuthEnabled(res))) return;
     const settings = await getDiscordSsoSettings();
     if (!settings.active) {
         return res.status(503).json({ error: 'Discord SSO is not configured' });
@@ -2150,7 +2272,8 @@ app.get('/api/auth/microsoft/callback', async (req, res) => {
         const verifiedState = verifyMicrosoftState(String(state));
         const tokenData = await exchangeMicrosoftCodeForToken(String(code), settings);
         const profile = await fetchMicrosoftUser(tokenData.access_token);
-        const user = await upsertMicrosoftUser(profile);
+        const avatarDataUri = await fetchMicrosoftAvatarDataUri(tokenData.access_token);
+        const user = await upsertMicrosoftUser(profile, avatarDataUri);
         if (user.blocked_until && new Date(user.blocked_until) > new Date() && user.role !== 'admin') {
             return redirectMicrosoftResult(res, {
                 error: 'Account is blocked',
@@ -2795,6 +2918,7 @@ app.get('/api/leaderboard', async (req, res) => {
                 u.display_name,
                 u.show_email,
                 u.discord_avatar_url,
+                u.microsoft_avatar_url,
                 COALESCE(s.score, 0) AS score,
                 COALESCE(s.correct_answered, 0) AS correct_answered,
                 COALESCE(s.total_answered, 0) AS total_answered,
@@ -2816,6 +2940,7 @@ app.get('/api/leaderboard', async (req, res) => {
                 email: canShowEmail ? row.email : null,
                 gravatar_hash: gravatarHash(row.email),
                 discord_avatar_url: row.discord_avatar_url || null,
+                microsoft_avatar_url: row.microsoft_avatar_url || null,
                 display_name: displayName,
                 score: row.score,
                 correct_answered: row.correct_answered,
@@ -3821,6 +3946,7 @@ app.get('/api/admin/users', async (req, res) => {
         const r = await pool.query(`
             SELECT u.id, u.email, u.role, u.is_anonymous, u.blocked_until, u.blocked_reason, u.display_name, u.show_email,
                    u.discord_id, u.discord_username, u.discord_avatar_url,
+                   u.microsoft_id, u.microsoft_username, u.microsoft_avatar_url,
                    COALESCE(SUM(gs.points), 0)::int AS score,
                    COUNT(gs.id)::int AS games_played,
                    COUNT(gs.id) FILTER (WHERE gs.is_correct = TRUE)::int AS correct_answers
@@ -4069,6 +4195,13 @@ app.post('/api/admin/microsoft-sso-settings', async (req, res) => {
             client_secret: String(body.client_secret ?? current.client_secret ?? '').trim(),
             redirect_uri: String(body.redirect_uri ?? current.redirect_uri ?? '').trim(),
         };
+        const teamsCurrent = await getTeamsBotSettings();
+        const loginCurrent = await getLoginSettings();
+        if (!(await assertAtLeastOneLoginMethodEnabled(res, {
+            standard: loginCurrent.standard_login_enabled,
+            microsoft: next.enabled,
+            teams: teamsCurrent.enabled,
+        }))) return;
         const redirectUri = resolveMicrosoftRedirectUri(next.redirect_uri);
         const inserted = await pool.query(
             `INSERT INTO microsoft_sso_settings (enabled, tenant_id, client_id, client_secret, redirect_uri)
@@ -4079,6 +4212,177 @@ app.post('/api/admin/microsoft-sso-settings', async (req, res) => {
         const effective = await getMicrosoftSsoSettings();
         await auditLog(admin.id, 'MICROSOFT_SSO_SETTINGS_UPDATE', `enabled=${effective.enabled} configured=${effective.configured}`);
         res.json({ ...inserted.rows[0], ...effective });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/admin/login-settings', async (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    try {
+        res.json(await getLoginSettings());
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/admin/login-settings', async (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const body = req.body || {};
+    try {
+        const current = await getLoginSettings();
+        const nextEnabled = typeof body.standard_login_enabled === 'boolean' ? body.standard_login_enabled : current.standard_login_enabled;
+        const msCurrent = await getMicrosoftSsoSettings();
+        const teamsCurrent = await getTeamsBotSettings();
+        if (!(await assertAtLeastOneLoginMethodEnabled(res, {
+            standard: nextEnabled,
+            microsoft: msCurrent.enabled,
+            teams: teamsCurrent.enabled,
+        }))) return;
+        const inserted = await pool.query(
+            `INSERT INTO login_settings (standard_login_enabled) VALUES ($1) RETURNING *`,
+            [nextEnabled]
+        );
+        await auditLog(admin.id, 'LOGIN_SETTINGS_UPDATE', `standard_login_enabled=${nextEnabled}`);
+        res.json(inserted.rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/admin/teams-bot-settings', async (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    try {
+        res.json(await getTeamsBotSettings());
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/admin/teams-bot-settings', async (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const body = req.body || {};
+    try {
+        const current = await getTeamsBotSettings();
+        const next = {
+            enabled: typeof body.enabled === 'boolean' ? body.enabled : !!current.enabled,
+            webhook_url: String(body.webhook_url ?? current.webhook_url ?? '').trim(),
+        };
+        const msCurrent = await getMicrosoftSsoSettings();
+        if (next.enabled && !msCurrent.active) {
+            return res.status(400).json({ error: 'Enable and configure Microsoft SSO first - Teams answers sign users in through it.' });
+        }
+        const loginCurrent = await getLoginSettings();
+        if (!(await assertAtLeastOneLoginMethodEnabled(res, {
+            standard: loginCurrent.standard_login_enabled,
+            microsoft: msCurrent.enabled,
+            teams: next.enabled,
+        }))) return;
+        const inserted = await pool.query(
+            `INSERT INTO teams_bot_settings (enabled, webhook_url) VALUES ($1,$2) RETURNING *`,
+            [next.enabled, next.webhook_url || null]
+        );
+        const effective = await getTeamsBotSettings();
+        await auditLog(admin.id, 'TEAMS_BOT_SETTINGS_UPDATE', `enabled=${effective.enabled} configured=${effective.configured}`);
+        res.json({ ...inserted.rows[0], ...effective });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/admin/teams-bot/post-question', async (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    try {
+        const settings = await getTeamsBotSettings();
+        if (!settings.active) return res.status(503).json({ error: 'Teams SSO/bot is not configured' });
+        const categoryId = req.body?.categoryId ? parseInt(req.body.categoryId, 10) : null;
+        const r = await pool.query(
+            `SELECT q.*, c.name AS category_name
+             FROM questions q
+             JOIN categories c ON c.id = q.category_id
+             WHERE q.disabled=FALSE AND c.disabled=FALSE AND ($1::int IS NULL OR q.category_id=$1)
+             ORDER BY RANDOM()
+             LIMIT 1`,
+            [categoryId]
+        );
+        if (!r.rows.length) return res.status(404).json({ error: 'No questions available' });
+        const question = r.rows[0];
+        const options = shuffleArray(compactQuestionOptions([
+            { char: 'A', text: question.option_a },
+            { char: 'B', text: question.option_b },
+            { char: 'C', text: question.option_c },
+            { char: 'D', text: question.option_d },
+        ]));
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        const session = await pool.query(
+            `INSERT INTO teams_trivia_sessions (question_id, category_id, correct_answer, expires_at)
+             VALUES ($1,$2,$3,$4) RETURNING *`,
+            [question.id, question.category_id, String(question.correct_answer).toUpperCase(), expiresAt]
+        );
+        const card = buildTeamsTriviaCard(question, options, session.rows[0].id);
+        await postTeamsAdaptiveCard(settings.webhook_url, card);
+        await auditLog(admin.id, 'TEAMS_TRIVIA_POSTED', `session=${session.rows[0].id} question=${question.id}`);
+        res.json({ posted: true, session_id: session.rows[0].id, expires_at: expiresAt });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET because Teams opens this as a plain link (Action.OpenUrl) - not an API
+// call, so it must render HTML on failure and 302-redirect on success.
+app.get('/api/teams/answer-redirect', async (req, res) => {
+    const sessionId = parseInt(req.query.session, 10);
+    const choice = String(req.query.choice || '').trim().toUpperCase().slice(0, 1);
+    const renderError = (message) => res.status(400).send(`<!doctype html><html><body style="font-family:sans-serif;max-width:480px;margin:60px auto;text-align:center"><h2>Can't record that answer</h2><p>${message}</p></body></html>`);
+    if (!Number.isFinite(sessionId) || !['A', 'B', 'C', 'D'].includes(choice)) {
+        return renderError('This link is missing required information.');
+    }
+    try {
+        const session = await pool.query('SELECT * FROM teams_trivia_sessions WHERE id=$1', [sessionId]);
+        if (!session.rows.length) return renderError('This trivia question no longer exists.');
+        if (new Date(session.rows[0].expires_at) <= new Date()) return renderError('This trivia question has expired.');
+        const msSettings = await getMicrosoftSsoSettings();
+        if (!msSettings.active) return renderError('Microsoft sign-in is not currently enabled on this site.');
+        const target = `/teams/answer-complete?session=${sessionId}&choice=${choice}`;
+        res.redirect(`/api/auth/microsoft/start?target=${encodeURIComponent(target)}`);
+    } catch (err) { renderError(err.message); }
+});
+
+app.post('/api/teams/answer', async (req, res) => {
+    const user = await requireAuth(req, res);
+    if (!user) return;
+    const sessionId = parseInt(req.body?.session_id, 10);
+    const choice = String(req.body?.choice || '').trim().toUpperCase().slice(0, 1);
+    if (!Number.isFinite(sessionId) || !['A', 'B', 'C', 'D'].includes(choice)) {
+        return res.status(400).json({ error: 'session_id and choice are required' });
+    }
+    try {
+        const sessionRes = await pool.query('SELECT * FROM teams_trivia_sessions WHERE id=$1', [sessionId]);
+        if (!sessionRes.rows.length) return res.status(404).json({ error: 'Session not found' });
+        const session = sessionRes.rows[0];
+        if (new Date(session.expires_at) <= new Date()) return res.status(409).json({ error: 'This trivia question has expired' });
+
+        const existing = await pool.query('SELECT id FROM teams_trivia_answers WHERE session_id=$1 AND user_id=$2', [sessionId, user.id]);
+        if (existing.rows.length) return res.status(409).json({ error: 'You already answered this one' });
+
+        const questionRes = await pool.query('SELECT complexity, option_a, option_b, option_c, option_d FROM questions WHERE id=$1', [session.question_id]);
+        const question = questionRes.rows[0] || {};
+        const isCorrect = choice === session.correct_answer;
+        const scoring = await getScoringSettings();
+        const points = isCorrect ? computeDiscordPoints(question.complexity, scoring) : 0;
+
+        await pool.query(
+            `INSERT INTO teams_trivia_answers (session_id, user_id, selected_answer, is_correct, points_awarded)
+             VALUES ($1,$2,$3,$4,$5)`,
+            [sessionId, user.id, choice, isCorrect, points]
+        );
+        await pool.query(
+            'INSERT INTO game_sessions (user_id,question_id,category_id,selected_answer,is_correct,points,created_at) VALUES ($1,$2,$3,$4,$5,$6,NOW())',
+            [user.id, session.question_id, session.category_id, choice, isCorrect, points]
+        );
+        if (points > 0) await pool.query('UPDATE users SET score=score+$1 WHERE id=$2', [points, user.id]);
+        adjustQuestionDifficulty(session.question_id, scoring).catch(() => {});
+
+        const optionLookup = { A: question.option_a, B: question.option_b, C: question.option_c, D: question.option_d };
+        res.json({
+            is_correct: isCorrect,
+            points_awarded: points,
+            correct_answer: session.correct_answer,
+            correct_answer_text: optionLookup[session.correct_answer] || '',
+        });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
