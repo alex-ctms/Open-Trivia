@@ -13,7 +13,7 @@ stages:
     - if: '$CI_COMMIT_TAG'
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
-    - VERSION=$(grep -m1 '"version"' frontend/package.json | sed -E 's/.*: *"([^"]+)".*/\1/')
+    - VERSION=$(sh .gitlab/ci/version.sh frontend/package.json)
 
 build-frontend:
   extends: .build_image
