@@ -1,5 +1,13 @@
 # Changelog / Roadmap
 
+## v0.3.22
+- Fixed a critical bug where every backend route was reachable only at its bare path (e.g. `/categories`) while the frontend and this chart's ingress both call `/api/...` - added the `/api` prefix to all ~101 routes so login, gameplay, and admin all work again.
+- Added Microsoft Entra ID (Azure AD) SSO: confidential-client OAuth login, an admin panel settings card, and a "Login Methods" toggle section (Standard Login / Microsoft SSO / Discord SSO / Teams SSO are all independently on/off, with at least one required).
+- Added Teams SSO: an admin-triggered "Post a Question Now" posts an Adaptive Card to a Teams channel via a Power Automate flow (`services/open-trivia-powerautomate/OpenTrivia.zip`); answer buttons sign the player in through Microsoft SSO and land on a results page. Microsoft sign-in also caches the player's Graph profile photo as their avatar.
+- Simplified the footer's Creditation section for an internal deployment: removed social icons and the Buy Me a Coffee link, replaced with a "Star my GitHub Project" link.
+- Migrated primary hosting to a self-hosted GitLab (CI/CD builds and pushes images there) and to Kubernetes via ArgoCD, alongside the existing Helm chart / GitHub / docker-compose options.
+- Refreshed the full category/question set from the latest `Open-Trivia-Questions` live sync export: 43 categories (including several new Computer/DevOps/Kubernetes/Traefik/Kong/ArgoCD/GitLab certification categories, plus Python and Geology), ~53,400 questions total.
+
 ## v0.3.21
 - Added Discord /shareplay command: creates a Share Play room and returns an embed with a clickable join link and room code. Auto-joins the room when the link is opened in a browser.
 - Added admin Category Merge: select two categories to merge one into the other. Flagged as destructive with a confirmation checkbox and warning modal. A full backup snapshot is saved automatically before every merge. All questions, game sessions, score resets, custom category groups, and scheduled trivia references are updated.
