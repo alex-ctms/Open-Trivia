@@ -12,6 +12,10 @@ spec:
       labels:
         app: {{ include "open-trivia.fullname" . }}-frontend
     spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- end }}
       containers:
         - name: frontend
           image: {{ .Values.image.frontend.repository }}:{{ .Values.image.frontend.tag }}

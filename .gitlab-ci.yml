@@ -1,0 +1,30 @@
+stages:
+  - build
+
+# Both images are tagged from the frontend's package.json version, matching
+# this repo's prior GitHub Actions convention (see .github/workflows/docker-publish.yml).
+.build_image:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - VERSION=$(grep -m1 '"version"' frontend/package.json | sed -E 's/.*: *"([^"]+)".*/\1/')
+
+build-frontend:
+  extends: .build_image
+  script:
+    - docker build -t "$CI_REGISTRY_IMAGE/frontend:v$VERSION" -t "$CI_REGISTRY_IMAGE/frontend:latest" ./frontend
+    - docker push "$CI_REGISTRY_IMAGE/frontend:v$VERSION"
+    - docker push "$CI_REGISTRY_IMAGE/frontend:latest"
+
+build-backend:
+  extends: .build_image
+  script:
+    - docker build -t "$CI_REGISTRY_IMAGE/backend:v$VERSION" -t "$CI_REGISTRY_IMAGE/backend:latest" ./backend
+    - docker push "$CI_REGISTRY_IMAGE/backend:v$VERSION"
+    - docker push "$CI_REGISTRY_IMAGE/backend:latest"

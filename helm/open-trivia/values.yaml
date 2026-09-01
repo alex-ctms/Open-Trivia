@@ -1,10 +1,14 @@
 image:
   frontend:
-    repository: ghcr.io/gamedirection/open-trivia-frontend
+    repository: registry.k8s.myctms.it/ctms/products/open-trivia/frontend
     tag: "v0.3.19"
   backend:
-    repository: ghcr.io/gamedirection/open-trivia-backend
+    repository: registry.k8s.myctms.it/ctms/products/open-trivia/backend
     tag: "v0.3.19"
+
+# Name(s) of an existing kubernetes.io/dockerconfigjson secret with pull
+# access to the registry above (it's a private project registry).
+imagePullSecrets: []
 
 frontend:
   service:
