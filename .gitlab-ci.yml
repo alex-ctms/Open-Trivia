@@ -1,6 +1,13 @@
 stages:
   - build
 
+variables:
+  # The runner uses the Kubernetes executor, where dind runs as a sidecar
+  # in the same pod (reachable via localhost, not a service hostname) -
+  # unlike the Docker executor, DOCKER_HOST isn't wired automatically.
+  DOCKER_HOST: tcp://localhost:2375
+  DOCKER_TLS_CERTDIR: ""
+
 # Both images are tagged from the frontend's package.json version, matching
 # this repo's prior GitHub Actions convention (see .github/workflows/docker-publish.yml).
 .build_image:
